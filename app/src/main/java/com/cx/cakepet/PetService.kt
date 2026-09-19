@@ -116,6 +116,11 @@ class PetService : Service() {
     private var lastFeedingExpireTime = ConfigDefaults.FEEDING_EXPIRE_TIME
     private var lastFeedingFullScreen = ConfigDefaults.FEEDING_FULL_SCREEN
     private var lastFeedingBorderShow = ConfigDefaults.FEEDING_BORDER_SHOW
+    private var lastFeedingPeriodMin = ConfigDefaults.FEEDING_PERIOD_MIN
+    private var lastFeedingPeriodMax = ConfigDefaults.FEEDING_PERIOD_MAX
+    // 上次生效的随机切换周期，用于检测变化并即时打断当前等待、以新周期重新计时
+    private var lastRandomPeriodMin = ConfigDefaults.RANDOM_PERIOD_MIN
+    private var lastRandomPeriodMax = ConfigDefaults.RANDOM_PERIOD_MAX
     // 上次生效的定格-拖动开关，用于检测变化并即时作用于全部已有定格层
     private var lastFreezeDraggable = ConfigDefaults.FREEZE_DRAGGABLE
     // 上次生效的显示定格边框开关，用于检测变化并即时叠加/移除红色窗口边框
@@ -1582,6 +1587,23 @@ class PetService : Service() {
             if (c.feedingBorderShow != lastFeedingBorderShow) {
                 lastFeedingBorderShow = c.feedingBorderShow
                 for (layer in fishLayers) setFishBorder(layer, c.feedingBorderShow)
+            }
+            if (c.feedingPeriodMin != lastFeedingPeriodMin || c.feedingPeriodMax != lastFeedingPeriodMax) {
+                lastFeedingPeriodMin = c.feedingPeriodMin
+                lastFeedingPeriodMax = c.feedingPeriodMax
+                // 频率周期变化：若投食功能正在运行，立即用新频率重排下一次掉落的计时器；
+                // 否则旧周期会跑完才生效（用户诉求：当前开启该功能时，修改应即时生效）。
+                if (fishSpawning) {
+                    mainHandler.removeCallbacks(fishSpawnRunnable)
+                    scheduleFishSpawn(c)
+                }
+            }
+            if (c.randomPeriodMin != lastRandomPeriodMin || c.randomPeriodMax != lastRandomPeriodMax) {
+                lastRandomPeriodMin = c.randomPeriodMin
+                lastRandomPeriodMax = c.randomPeriodMax
+                // 随机切换周期变化：若随机模式正在运行，立即打断当前等待、以新周期重新计时；
+                // 否则要等旧周期跑完才生效。仅开启时重排，未开启不打扰。
+                if (c.randomEnabled) requestRandomReset()
             }
             // 物理参数同步：遍历所有实例（共享配置，各实例物理独立生效）。
             pets.forEach { inst ->
