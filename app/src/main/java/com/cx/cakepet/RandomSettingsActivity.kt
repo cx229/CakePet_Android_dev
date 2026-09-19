@@ -24,7 +24,8 @@ class RandomSettingsActivity : AppCompatActivity() {
     private lateinit var swRandomMode: Switch
     // 屏蔽随机模式总开关的监听器回调（提升为字段，供 doResetDefault 复用）
     private var suppressRandomSwitch = false
-    private val config by lazy { PetConfig(this) }
+    private val roleId by lazy { intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id }
+    private val config by lazy { PetConfig.forRole(this, roleId) }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_random_settings)
@@ -37,7 +38,7 @@ class RandomSettingsActivity : AppCompatActivity() {
         val randomBtnMore = findViewById<ImageView>(R.id.btn_more)
         val randomMoreMenu = SettingsMoreMenu(
             anchor = randomBtnMore,
-            onThreshold = { startActivity(Intent(this, RandomThresholdActivity::class.java)) },
+            onThreshold = { startActivity(Intent(this, RandomThresholdActivity::class.java).apply { putExtra("role_id", roleId) }) },
             onResetUserDefault = { doResetDefault() },
             onResetSystem = { doResetSystem() }
         )
@@ -112,9 +113,9 @@ class RandomSettingsActivity : AppCompatActivity() {
      */
     private suspend fun applyReset() {
         try {
-            config.resetFromBounds(PetBounds(this@RandomSettingsActivity), SettingsPage.RANDOM)
+            config.resetFromBounds(PetBounds.forRole(this@RandomSettingsActivity, roleId), SettingsPage.RANDOM)
             val c = config.configFlow.first()
-            val b = PetBounds(this@RandomSettingsActivity).getBlocking(SettingsPage.RANDOM).duals
+            val b = PetBounds.forRole(this@RandomSettingsActivity, roleId).getBlocking(SettingsPage.RANDOM).duals
                 .firstOrNull { it.key == "randomPeriod" } ?: return
             suppressRandomSwitch = true
             // 按阈值默认值重建的位掩码同步各随机项开关
@@ -145,8 +146,8 @@ class RandomSettingsActivity : AppCompatActivity() {
     /** 实际执行「重置系统默认值与阈值」：bounds 先回落系统出厂，再按系统默认重建本页当前值并刷新 UI。 */
     private fun resetSystemNow() {
         lifecycleScope.launch {
-            PetBounds(this@RandomSettingsActivity).resetSystem(SettingsPage.RANDOM)
-            config.resetFromBounds(PetBounds(this@RandomSettingsActivity), SettingsPage.RANDOM)
+            PetBounds.forRole(this@RandomSettingsActivity, roleId).resetSystem(SettingsPage.RANDOM)
+            config.resetFromBounds(PetBounds.forRole(this@RandomSettingsActivity, roleId), SettingsPage.RANDOM)
             // 关键：必须走 refreshUI() 重绑周期双滑块的 valueFrom/valueTo 行程，否则阈值回落到更小范围后，
             // 滑块行程仍按「改过的旧上下界」映射，导致「超阈值重置」后双滑块范围/位置显示异常。
             refreshUI()
@@ -156,7 +157,7 @@ class RandomSettingsActivity : AppCompatActivity() {
     // 周期双滑块绑定 + 值回填。抽成方法，onCreate 与 onResume 复用，
     // 使从阈值页返回时滑块行程（最新上下界）即时热更新。
     private fun refreshUI() {
-        val bPeriod = PetBounds(this).getBlocking(SettingsPage.RANDOM).duals
+        val bPeriod = PetBounds.forRole(this@RandomSettingsActivity, roleId).getBlocking(SettingsPage.RANDOM).duals
             .firstOrNull { it.key == "randomPeriod" } ?: return
         periodRange.clearOnChangeListeners()
         // 关键：XML 默认 valueTo=180 使 values=[1,180]，若直接缩小 valueTo 会因现有 values 越界抛 IllegalArgumentException。
@@ -217,7 +218,7 @@ class RandomSettingsActivity : AppCompatActivity() {
             swRandomMode.isChecked = c.randomEnabled
             switchViews.forEach { (flag, sw) -> sw.isChecked = (c.randomItems and flag) != 0 }
             suppressRandomSwitch = false
-            val b = PetBounds(this@RandomSettingsActivity).getBlocking(SettingsPage.RANDOM).duals
+            val b = PetBounds.forRole(this@RandomSettingsActivity, roleId).getBlocking(SettingsPage.RANDOM).duals
                 .firstOrNull { it.key == "randomPeriod" } ?: return@launch
             val lo = c.randomPeriodMin.coerceIn(b.fromA.toInt(), b.toA.toInt())
             val hi = c.randomPeriodMax.coerceIn(b.fromB.toInt(), b.toB.toInt())

@@ -37,6 +37,7 @@ abstract class BaseThresholdActivity : AppCompatActivity() {
     protected abstract val pageTitleText: String
 
     protected lateinit var binding: ActivityThresholdSettingsBinding
+    protected val roleId by lazy { intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id }
     protected lateinit var petBounds: PetBounds
     protected lateinit var petConfig: PetConfig
     protected var current: PageBounds = PageBounds()
@@ -46,8 +47,8 @@ abstract class BaseThresholdActivity : AppCompatActivity() {
         binding = ActivityThresholdSettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        petBounds = PetBounds(this)
-        petConfig = PetConfig(this)
+        petBounds = PetBounds.forRole(this, roleId)
+        petConfig = PetConfig.forRole(this, roleId)
 
         // 与设置页一致：用占位条填满状态栏高度，标题栏黑底与状态栏连成整体覆盖状态栏
         binding.statusBarSpacer.layoutParams.height = getStatusBarHeight()

@@ -29,7 +29,8 @@ class ThinkingSettingsActivity : AppCompatActivity() {
     // 候选色：与阈值页「背景颜色」共用 THINKING_PRESET_COLORS（黑/白/黄/绿/蓝/红，定义于 AppDefaults.kt）
     private val presetColors = THINKING_PRESET_COLORS.toIntArray()
 
-    private val config by lazy { PetConfig(this) }
+    private val roleId by lazy { intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id }
+    private val config by lazy { PetConfig.forRole(this, roleId) }
 
     // 滑块/值视图提升为字段，供 refreshUI / onResume 复用
     private lateinit var sizeBar: Slider
@@ -171,7 +172,7 @@ class ThinkingSettingsActivity : AppCompatActivity() {
 
     /** 把当前配置刷新到本页所有滑块/数值/开关/颜色。供 configFlow.collect 持续调用，取代冷读 configFlow.first()。 */
     private suspend fun applyConfigToUi(c: PetConfigData) {
-        val b = PetBounds(this@ThinkingSettingsActivity).getBlocking(SettingsPage.THINKING)
+        val b = PetBounds.forRole(this@ThinkingSettingsActivity, roleId).getBlocking(SettingsPage.THINKING)
         val bs2 = b.sliders.first { it.key == "thinkingTextSize" }
         val ba2 = b.sliders.first { it.key == "thinkingAlpha" }
         val bo2 = b.sliders.first { it.key == "thinkingOffset" }
@@ -231,7 +232,7 @@ class ThinkingSettingsActivity : AppCompatActivity() {
      *  数值/开关/颜色由 configFlow.collect → applyConfigToUi 自动刷新，彻底避免冷读旧快照。 */
     private fun reloadUiAfterReset() {
         lifecycleScope.launch {
-            config.resetFromBounds(PetBounds(this@ThinkingSettingsActivity), SettingsPage.THINKING)
+            config.resetFromBounds(PetBounds.forRole(this@ThinkingSettingsActivity, roleId), SettingsPage.THINKING)
             refreshUI()
         }
     }
@@ -254,7 +255,7 @@ class ThinkingSettingsActivity : AppCompatActivity() {
     /** 实际执行「重置系统默认值与阈值」：bounds 回落系统出厂，再写回 PetConfig 并刷新本页（单协程顺序执行）。 */
     private fun resetSystemNow() {
         lifecycleScope.launch {
-            PetBounds(this@ThinkingSettingsActivity).resetSystem(SettingsPage.THINKING)
+            PetBounds.forRole(this@ThinkingSettingsActivity, roleId).resetSystem(SettingsPage.THINKING)
             reloadUiAfterReset()
         }
     }
@@ -276,7 +277,7 @@ class ThinkingSettingsActivity : AppCompatActivity() {
         pendingOffset = null
         pendingBgAlpha = null
         pendingEmpty = null
-        val bs = PetBounds(this).getBlocking(SettingsPage.THINKING)
+        val bs = PetBounds.forRole(this@ThinkingSettingsActivity, roleId).getBlocking(SettingsPage.THINKING)
         val bSize = bs.sliders.first { it.key == "thinkingTextSize" }
         val bAlpha = bs.sliders.first { it.key == "thinkingAlpha" }
         val bOffset = bs.sliders.first { it.key == "thinkingOffset" }

@@ -27,6 +27,8 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private lateinit var config: PetConfig
+    private lateinit var roleId: String
+    private lateinit var roleBounds: PetBounds
     // 屏蔽吸附预览回调（提升为字段，供 doResetDefault 复用）
     private var suppressSnapPreview: Boolean = false
     // 屏蔽开关 listener 回调：applyConfig 程序化回填所有开关时置 true，避免回流 setChecked 触发 listener 又写盘，
@@ -64,17 +66,19 @@ class SettingsActivity : AppCompatActivity() {
         val spacer = findViewById<android.view.View>(R.id.status_bar_spacer)
         spacer.layoutParams.height = getStatusBarHeight()
         spacer.requestLayout()
-        config = PetConfig(this)
+        roleId = intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id
+        config = PetConfig.forRole(this, roleId)
+        roleBounds = PetBounds.forRole(this, roleId)
 
-        // 阈值范围（来自 PetBounds，用于滑块业务上下界/默认值）
-        bs = PetBounds(this).getBlocking(SettingsPage.MAIN).sliders.associateBy { it.key }
+        // 阈值范围（来自当前角色 PetBounds，用于滑块业务上下界/默认值）
+        bs = roleBounds.getBlocking(SettingsPage.MAIN).sliders.associateBy { it.key }
 
         // 右上角“更多”图标：弹出菜单，含「默认值与阈值」「恢复用户默认」
         // 「重置系统默认值与阈值」及主设置页专属「重置软件所有设置」（需确认）
         val btnMore = findViewById<ImageView>(R.id.btn_more)
         val moreMenu = SettingsMoreMenu(
             anchor = btnMore,
-            onThreshold = { startActivity(Intent(this, MainThresholdActivity::class.java)) },
+            onThreshold = { startActivity(Intent(this, MainThresholdActivity::class.java).apply { putExtra("role_id", roleId) }) },
             onResetUserDefault = { doResetDefault() },
             onResetSystem = { doResetSystem() },
             onResetAll = { confirmResetAll() }
@@ -228,7 +232,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         // 随机模式入口：点击进入二级页
         rowRandomMode.setOnClickListener {
-            startActivity(android.content.Intent(this, RandomSettingsActivity::class.java))
+            startActivity(android.content.Intent(this, RandomSettingsActivity::class.java).apply { putExtra("role_id", roleId) })
         }
         swVisible.setOnCheckedChangeListener { _, b ->
             if (suppressSwitch) return@setOnCheckedChangeListener
@@ -252,19 +256,19 @@ class SettingsActivity : AppCompatActivity() {
         }
         // 碎碎念开关入口：整行点击进入碎碎念设置页
         rowThinkingMode.setOnClickListener {
-            startActivity(android.content.Intent(this, ThinkingSettingsActivity::class.java))
+            startActivity(android.content.Intent(this, ThinkingSettingsActivity::class.java).apply { putExtra("role_id", roleId) })
         }
         rowFeedingMode.setOnClickListener {
-            startActivity(android.content.Intent(this, FeedingSettingsActivity::class.java))
+            startActivity(android.content.Intent(this, FeedingSettingsActivity::class.java).apply { putExtra("role_id", roleId) })
         }
         // 吸附边缘总开关入口：整行点击切换 snapEnabled
         // 吸附边缘入口：仅显示状态（已开启/已关闭）+ 跳转贴边边设置页
         rowSnapMode.setOnClickListener {
-            startActivity(android.content.Intent(this, SnapSettingsActivity::class.java))
+            startActivity(android.content.Intent(this, SnapSettingsActivity::class.java).apply { putExtra("role_id", roleId) })
         }
         // 进入显示范围二级页（边界偏移：顶/底/左/右）
         findViewById<android.view.View>(R.id.row_range_settings).setOnClickListener {
-            startActivity(android.content.Intent(this, RangeSettingsActivity::class.java))
+            startActivity(android.content.Intent(this, RangeSettingsActivity::class.java).apply { putExtra("role_id", roleId) })
         }
         // 体感重力：只切换 tiltGravity 标志，不改动四边定向重力的存储值与 UI 状态。
         // 物理层 PetPhysics.step() 在 tiltGravity=true 时优先走体感分支（忽略四边），
@@ -277,7 +281,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         // 「恢复默认设置」已移入右上角“更多”浮窗，逻辑封装为 doResetDefault()
         findViewById<android.widget.TextView>(R.id.btn_about).setOnClickListener {
-            startActivity(android.content.Intent(this, AboutActivity::class.java))
+            startActivity(android.content.Intent(this, AboutActivity::class.java).apply { putExtra("role_id", roleId) })
         }
         findViewById<android.widget.ImageView>(R.id.iv_back).setOnClickListener { finish() }
     }
@@ -298,9 +302,9 @@ class SettingsActivity : AppCompatActivity() {
     private fun resetDefaultNow() {
         suppressSnapPreview = true
         lifecycleScope.launch {
-            config.resetFromBounds(PetBounds(this@SettingsActivity), SettingsPage.MAIN)
+            config.resetFromBounds(roleBounds, SettingsPage.MAIN)
             // 关键：按最新 bounds 重绑滑块行程（setupSliders 从 config 回填全部滑块/开关），避免只改 config 不刷新 UI
-            bs = PetBounds(this@SettingsActivity).getBlocking(SettingsPage.MAIN).sliders.associateBy { it.key }
+            bs = roleBounds.getBlocking(SettingsPage.MAIN).sliders.associateBy { it.key }
             setupSliders()
             // 重置后数据绑定会回填开关并触发 listener，延迟解除屏蔽避免误显示示意图
             kotlinx.coroutines.delay(300)
@@ -322,11 +326,11 @@ class SettingsActivity : AppCompatActivity() {
     private fun resetSystemNow() {
         suppressSnapPreview = true
         lifecycleScope.launch {
-            PetBounds(this@SettingsActivity).resetSystem(SettingsPage.MAIN)
-            config.resetFromBounds(PetBounds(this@SettingsActivity), SettingsPage.MAIN)
+            roleBounds.resetSystem(SettingsPage.MAIN)
+            config.resetFromBounds(roleBounds, SettingsPage.MAIN)
             // 关键：阈值已回落，必须按最新 bounds 重绑滑块行程（setupSliders 重绑 from/to 闭包），
             // 否则滑块仍按「先在阈值页改过的旧上下界」映射，导致重置后范围不更新、显示异常。
-            bs = PetBounds(this@SettingsActivity).getBlocking(SettingsPage.MAIN).sliders.associateBy { it.key }
+            bs = roleBounds.getBlocking(SettingsPage.MAIN).sliders.associateBy { it.key }
             setupSliders()
             kotlinx.coroutines.delay(300)
             suppressSnapPreview = false
@@ -346,7 +350,7 @@ class SettingsActivity : AppCompatActivity() {
     /** 执行全系统重置：遍历所有页重置阈值系统默认值，并恢复 PetConfig 出厂默认值。 */
     private fun doResetAll() {
         lifecycleScope.launch {
-            val petBounds = PetBounds(this@SettingsActivity)
+            val petBounds = roleBounds
             SettingsPage.entries.forEach { petBounds.resetSystem(it) }
             config.reset()
             // 关键：本页阈值已回落，按最新 bounds 重绑滑块行程（其余页会在各自 onResume 重绑）。
@@ -368,7 +372,7 @@ class SettingsActivity : AppCompatActivity() {
     // 使「阈值设置」里修改的上下界/默认值立即生效（无需重新进入本页）。
     override fun onResume() {
         super.onResume()
-        bs = PetBounds(this).getBlocking(SettingsPage.MAIN).sliders.associateBy { it.key }
+        bs = roleBounds.getBlocking(SettingsPage.MAIN).sliders.associateBy { it.key }
         setupSliders()
     }
 

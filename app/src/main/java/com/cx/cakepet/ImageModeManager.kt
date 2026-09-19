@@ -9,7 +9,7 @@ import org.json.JSONObject
 
 /**
  * 图片资源包：抽象“不同套美术资源”的加载策略。
- * - [resolve]：resName(如 "sit_clam-1.png") -> assets 相对路径(如 "img/sit_clam-1.png"
+ * - [resolve]：resName(如 "sit_clam-1.png") -> assets 相对路径(如 "芝麻酥/sit_clam-1.png"
  *   / "芝麻酥/安静/sit_clam-1.png")；返回 null 表示该包不含此帧（加载时回退到 fallback）。
  * - [decodeTarget]：物理解码目标边长(px)；0 = 保持原始尺寸（默认包，原生 128）。
  *   新包原图 1000×1000，设为 256 ⇒ 解码期超采样到 256（最长边），作 2x 抗锯齿源；
@@ -24,7 +24,7 @@ import org.json.JSONObject
 data class SpritePack(
     val id: String,
     val resolve: (String) -> String?,
-    val configPath: String? = null,   // 该包的动画/帧/锚点配置（assets 内相对路径），如 "img/modes.json" / "芝麻酥/modes.json"
+    val configPath: String? = null,   // 该包的动画/帧/锚点配置（assets 内相对路径），如 "芝麻酥/modes.json" / "芝麻球促销/modes.json"
     val decodeTarget: Int = 0,         // 物理超采样解码边长（0=原生）；新包 256
     val anchorRes: Int = 128,          // 逻辑分辨率（锚点/画布/UI 坐标系单位），恒 128
     val forceBottomCenterAnchor: Boolean = false
@@ -38,7 +38,8 @@ data class SpritePack(
  */
 class ImageModeManager(
     private val ctx: android.content.Context,
-    initialPack: SpritePack = DEFAULT_SPRITE_PACK
+    // 默认资源包=芝麻酥（已不再使用旧图 assets/img/）。
+    initialPack: SpritePack = zhimasuPack(ctx)
 ) {
 
     companion object {
@@ -62,13 +63,6 @@ class ImageModeManager(
         const val LIE = "lie"
         const val PORTAL = "portal"
 
-        /** 默认资源包：assets/img/ 下按原图尺寸加载，沿用逐帧锚点。 */
-        val DEFAULT_SPRITE_PACK = SpritePack(
-            id = "default",
-            resolve = { "img/$it" },
-            configPath = "img/modes.json"
-        )
-
         /**
          * 构建“芝麻酥”新资源包：扫描 assets/芝麻酥/ 下所有 png，
          * 以文件名(含扩展名)为 key 映射到完整相对路径（按子目录归类，如 安静/sit_clam-1.png）。
@@ -91,7 +85,7 @@ class ImageModeManager(
         }
 
         /**
-         * “芝麻球促销”资源包：旧 assets/img/ 原图（128）仅重排子目录 + 新动作（投食/探头投食等），
+         * “芝麻球促销”资源包：沿用旧图尺寸（128）仅重排子目录 + 新动作（投食/探头投食等），
          * 同样以“子目录/文件名”给出 res（如 "安静/sit_clam-1.png"），拼 “芝麻球促销/” 前缀即可定位。
          * decodeTarget=0（原生 128 尺寸）、forceBottomCenterAnchor 由 JSON(false) 驱动。
          */
@@ -104,6 +98,21 @@ class ImageModeManager(
                 decodeTarget = 0,                 // 沿用旧图原生尺寸
                 anchorRes = 128,
                 forceBottomCenterAnchor = false
+            )
+        }
+
+        /**
+         * “白酥”资源包：与芝麻酥同构（1000px 高清、forceBottomCenterAnchor=true，
+         * 子目录/文件名给出 res），仅前缀改为 “白酥/”。
+         */
+        fun baiasuPack(ctx: android.content.Context): SpritePack {
+            return SpritePack(
+                id = "baiasu",
+                resolve = { "白酥/$it" },
+                configPath = "白酥/modes.json",
+                decodeTarget = 256,                // 物理超采样 2x（逻辑仍为 anchorRes=128）
+                anchorRes = 128,
+                forceBottomCenterAnchor = true
             )
         }
     }
@@ -159,7 +168,7 @@ class ImageModeManager(
     private var forcedOnEnd: (() -> Unit)? = null
     private var timeNextAcc = 0L
     private var timeNextTarget = 0L
-    /** 当前生效的资源包；默认=默认包，可由 setPack 运行时切换（关于页“使用新资源”）。 */
+    /** 当前生效的资源包；默认=芝麻酥包，可由 setPack 运行时按角色资源包切换。 */
     var currentPack: SpritePack = initialPack
 
     /** 当前行走方向与位移速度（>0 表示正在行走位移，由物理引擎驱动水平移动） */
@@ -671,7 +680,7 @@ class ImageModeManager(
     }
 
     /**
-     * 运行时切换资源包（关于页“使用新资源”开关触发）。
+     * 运行时切换资源包（按角色资源包触发）。
      * 清空位图/尺寸缓存，重建统一画布尺寸，并复位到默认静坐模式。
      * 注意：切换会打断当前一次性动画并回到 sit_clam（配置切换属低频操作，可接受短暂停顿）。
      */

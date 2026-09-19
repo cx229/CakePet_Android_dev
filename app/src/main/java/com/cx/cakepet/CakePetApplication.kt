@@ -13,7 +13,7 @@ class CakePetApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val cfg = PetConfig(this).getBlocking()
+        val cfg = PetConfig.forRole(this, RoleRegistry.DEFAULT.id).getBlocking()
         val mode = when {
             cfg.forceNightOn -> AppCompatDelegate.MODE_NIGHT_YES
             cfg.forceNightOff -> AppCompatDelegate.MODE_NIGHT_NO

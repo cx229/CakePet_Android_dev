@@ -1,6 +1,12 @@
 package com.cx.cakepet
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.preferencesDataStoreFile
+import kotlinx.coroutines.runBlocking
+import java.util.concurrent.ConcurrentHashMap
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -115,7 +121,7 @@ data class PetConfigData(
     // 夜间模式强制开关：二者默认均关。强制打开优先级 > 强制关闭 > 跟随系统。
     val forceNightOn: Boolean = ConfigDefaults.FORCE_NIGHT_ON,         // 强制打开夜间模式
     val forceNightOff: Boolean = ConfigDefaults.FORCE_NIGHT_OFF,        // 强制关闭夜间模式
-    // 资源包：0=旧图 assets/img/、1=芝麻酥、2=芝麻球促销（关于页三选一，默认 1=芝麻酥）。
+    // 资源包：1=芝麻酥、2=芝麻球促销（按角色默认，默认 1=芝麻酥）。
     // 由旧版 useNewSprite 布尔迁移而来：true→1、false→0。
     val spritePack: Int = ConfigDefaults.DEFAULT_SPRITE_PACK,            // 当前图片资源包
     // 仅单个碎碎念：开启=仅主实例显示碎碎念；关闭=每个实例各自显示（关于页开关，默认开）
@@ -169,9 +175,56 @@ object RandomItemFlags {
     const val RBOUND_ALL = RBOUND_TOP or RBOUND_BOTTOM or RBOUND_LEFT or RBOUND_RIGHT
 }
 
-private val Context.dataStore by preferencesDataStore(name = "pet_config")
+private val Context.legacyDataStore by preferencesDataStore(name = "pet_config")
 
-class PetConfig(private val context: Context) {
+/**
+ * 全局/角色配置（对应 PC 端 configs.py / config.yaml），由 DataStore 持久化。
+ *
+ * 多角色并存后，每个角色持有自己的 PetConfig 实例，绑定到 pet_config_<roleId> 独立文件；
+ * 旧版单文件 pet_config 在首启动时迁移进默认角色(zhimasu)专用文件（见 [forRole]）。
+ */
+class PetConfig private constructor(
+    private val dataStore: DataStore<Preferences>,
+    // 角色 id：用于让「资源包」等默认值回退到本角色自己的资源包（如芝麻球促销→2、芝麻酥→1），
+    // 而不是全局默认 1（芝麻酥），保证多角色资源包相互独立。
+    val roleId: String = RoleRegistry.DEFAULT.id
+) {
+
+    // 兼容旧调用：沿用单一 pet_config 文件（设置页 Phase5 将改为按当前角色 forRole）。
+    constructor(context: Context) : this(context.legacyDataStore, RoleRegistry.DEFAULT.id)
+
+    companion object {
+        /**
+         * 每个角色文件（pet_config_<roleId>）必须且只能有一个活跃 DataStore 实例，
+         * 否则会抛 "multiple DataStores active" 崩溃。这里按 roleId 缓存单例。
+         */
+        private val cache = ConcurrentHashMap<String, PetConfig>()
+
+        /**
+         * 按角色构建专用配置 DataStore（pet_config_<roleId>），同一角色永远返回同一实例。
+         * 默认角色(zhimasu)首次构建时，从旧版单文件 pet_config 迁移一次（保留老用户设置）。
+         */
+        fun forRole(context: Context, roleId: String): PetConfig = cache.computeIfAbsent(roleId) {
+            val newStore = PreferenceDataStoreFactory.create {
+                context.applicationContext.preferencesDataStoreFile("pet_config_$roleId")
+            }
+            if (roleId == RoleRegistry.DEFAULT.id) {
+                runBlocking {
+                    val legacy = context.legacyDataStore.data.first()
+                    val cur = newStore.data.first()
+                    if (cur.asMap().isEmpty() && legacy.asMap().isNotEmpty()) {
+                        newStore.edit { prefs ->
+                            legacy.asMap().forEach { (k, v) ->
+                                @Suppress("UNCHECKED_CAST")
+                                prefs[k as androidx.datastore.preferences.core.Preferences.Key<Any>] = v
+                            }
+                        }
+                    }
+                }
+            }
+            PetConfig(newStore, roleId)
+        }
+    }
 
     private val KEY_SCALE = floatPreferencesKey("scale")
     private val KEY_GRAVITY = floatPreferencesKey("gravity")
@@ -349,10 +402,13 @@ class PetConfig(private val context: Context) {
             petCount = (prefs[KEY_PET_COUNT] ?: ConfigDefaults.PET_COUNT).coerceIn(ConfigDefaults.PET_COUNT_MIN, ConfigDefaults.PET_COUNT_MAX),
             forceNightOn = prefs[KEY_FORCE_NIGHT_ON] ?: ConfigDefaults.FORCE_NIGHT_ON,
             forceNightOff = prefs[KEY_FORCE_NIGHT_OFF] ?: ConfigDefaults.FORCE_NIGHT_OFF,
-            // 资源包：优先读新 int 键；缺失时由旧版 boolean 键迁移（true→1 芝麻酥，false→0 旧图）。
+            // 资源包：优先读新 int 键；缺失时由旧版 boolean 键迁移（true→1 芝麻酥，false→0 旧图）；
+            // 仍缺失则回退到本角色自己的资源包（如芝麻球促销→2），而非全局默认 1（芝麻酥），
+            // 保证新角色首启动即使用正确资源包、与芝麻酥互不串用。
             spritePack = prefs[KEY_SPRITE_PACK]
-                ?: (prefs[KEY_USE_NEW_SPRITE]?.let { if (it) 1 else 0 }
-                    ?: ConfigDefaults.DEFAULT_SPRITE_PACK),
+                // 旧版 boolean 键：true→芝麻酥(1)；false（原旧图）已无旧图，回退到本角色自己的资源包。
+                ?: (prefs[KEY_USE_NEW_SPRITE]?.let { if (it) 1 else RoleRegistry.byId(roleId)?.packId ?: ConfigDefaults.DEFAULT_SPRITE_PACK }
+                    ?: (RoleRegistry.byId(roleId)?.packId ?: ConfigDefaults.DEFAULT_SPRITE_PACK)),
             singleTrayMsg = prefs[KEY_SINGLE_TRAY_MSG] ?: ConfigDefaults.SINGLE_TRAY_MSG,
             forceOpaque = prefs[KEY_FORCE_OPAQUE] ?: ConfigDefaults.FORCE_OPAQUE,
             // 投喂（支鱼）
@@ -374,7 +430,7 @@ class PetConfig(private val context: Context) {
         )
     }
 
-    val configFlow: Flow<PetConfigData> = context.dataStore.data.map { it.toConfigData() }
+    val configFlow: Flow<PetConfigData> = dataStore.data.map { it.toConfigData() }
 
     // 清洗已存在的非法旧数据：找出 DataStore 中可能残留的“左右同开/上下同开”组合并修正回写。
     // 仅当确实存在非法组合时才写盘（避免无谓 IO）。在配置加载入口调用一次即可。
@@ -408,7 +464,7 @@ class PetConfig(private val context: Context) {
     }
 
     suspend fun update(block: (PetConfigData) -> PetConfigData) {
-        context.dataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             // 读改写必须整体放在 edit 事务内：DataStore 保证同一时刻只有一个写事务，
             // 且事务内能读到最新已提交数据。若把读取放到 edit 之外（configFlow.first()），
             // 高频拖动滑块时多个并发协程会读到同一个旧快照并乱序写回，
@@ -528,7 +584,9 @@ class PetConfig(private val context: Context) {
     // 不依赖 configFlow 的「?: 回退值」，彻底避免两处默认值不同步导致恢复出错
     // （例如体感重力、底部偏移等曾被回退值覆盖）。写盘即生效，下次启动也一致。
     suspend fun reset() {
-        update { PetConfigData() }
+        // 资源包默认回退到本角色自己的资源包（如芝麻球促销→2），而非全局默认 1（芝麻酥），
+        // 保证「重置软件（仅当前角色）」后该角色仍使用各自正确的资源包。
+        update { PetConfigData(spritePack = RoleRegistry.byId(roleId)?.packId ?: ConfigDefaults.DEFAULT_SPRITE_PACK) }
     }
 
     // 按阈值页的「用户默认值」恢复：把指定页 bounds 中记录的 default 写回 PetConfig。

@@ -23,10 +23,11 @@ import kotlinx.coroutines.withContext
 
 /** 吃吃吃（投食）设置页：投食开关 / 大小 / 透明度 / 最大数量 / 频率 / 自动过期 + 过期时间 / 全屏刷新。 */
 class FeedingSettingsActivity : AppCompatActivity() {
-    private val config by lazy { PetConfig(this) }
+    private val roleId by lazy { intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id }
+    private val config by lazy { PetConfig.forRole(this, roleId) }
     // 每次调用重读最新 PetBounds（阈值页修改后即时生效），禁止缓存——否则 onResume 重绑行程仍是旧界。
-    private fun bs() = PetBounds(this).getBlocking(SettingsPage.FEEDING).sliders.associateBy { it.key }
-    private fun bd() = PetBounds(this).getBlocking(SettingsPage.FEEDING).duals.associateBy { it.key }
+    private fun bs() = PetBounds.forRole(this@FeedingSettingsActivity, roleId).getBlocking(SettingsPage.FEEDING).sliders.associateBy { it.key }
+    private fun bd() = PetBounds.forRole(this@FeedingSettingsActivity, roleId).getBlocking(SettingsPage.FEEDING).duals.associateBy { it.key }
 
     private lateinit var statusBarSpacer: View
     private lateinit var ivBack: ImageView
@@ -348,7 +349,7 @@ class FeedingSettingsActivity : AppCompatActivity() {
 
     private fun doResetDefault() {
         lifecycleScope.launch(Dispatchers.IO) {
-            config.resetFromBounds(PetBounds(this@FeedingSettingsActivity), SettingsPage.FEEDING)
+            config.resetFromBounds(PetBounds.forRole(this@FeedingSettingsActivity, roleId), SettingsPage.FEEDING)
             withContext(Dispatchers.Main) {
                 Toast.makeText(this@FeedingSettingsActivity, "已恢复用户默认", Toast.LENGTH_SHORT).show()
                 resumePending()
@@ -360,7 +361,7 @@ class FeedingSettingsActivity : AppCompatActivity() {
 
     private fun doResetSystem() {
         lifecycleScope.launch(Dispatchers.IO) {
-            PetBounds(this@FeedingSettingsActivity).resetSystem(SettingsPage.FEEDING)
+            PetBounds.forRole(this@FeedingSettingsActivity, roleId).resetSystem(SettingsPage.FEEDING)
             withContext(Dispatchers.Main) {
                 Toast.makeText(this@FeedingSettingsActivity, "已重置为系统默认", Toast.LENGTH_SHORT).show()
                 resumePending()

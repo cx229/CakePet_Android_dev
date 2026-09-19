@@ -97,24 +97,6 @@
                 <Switch android:id="@+id/sw_force_night_off" android:layout_width="wrap_content"
                     android:layout_height="wrap_content"/>
             </LinearLayout>
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical" android:layout_marginTop="8dp">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="角色图片资源包" style="@style/SettingsOptionSub"/>
-                <RadioGroup android:id="@+id/rg_sprite_pack" android:layout_width="match_parent"
-                    android:layout_height="wrap_content" android:orientation="horizontal"
-                    android:layout_marginTop="4dp">
-                    <RadioButton android:id="@+id/rb_pack_img" android:layout_width="0dp"
-                        android:layout_height="wrap_content" android:layout_weight="1"
-                        android:text="旧图" android:textSize="14dp"/>
-                    <RadioButton android:id="@+id/rb_pack_zhimasu" android:layout_width="0dp"
-                        android:layout_height="wrap_content" android:layout_weight="1"
-                        android:text="芝麻酥" android:textSize="14dp"/>
-                    <RadioButton android:id="@+id/rb_pack_zhimaqiu" android:layout_width="0dp"
-                        android:layout_height="wrap_content" android:layout_weight="1"
-                        android:text="芝麻球促销" android:textSize="14dp"/>
-                </RadioGroup>
-            </LinearLayout>
             <!-- ===== 静态边界（定格/食物绝对显示边界，仅钳竖向，范围 -200~400） ===== -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="静态边界（定格/食物显示范围）" style="@style/SettingsOptionTitle"

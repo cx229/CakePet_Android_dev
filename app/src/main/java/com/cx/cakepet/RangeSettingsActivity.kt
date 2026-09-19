@@ -27,7 +27,8 @@ class RangeSettingsActivity : AppCompatActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
-    private val config by lazy { PetConfig(this) }
+    private val roleId by lazy { intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id }
+    private val config by lazy { PetConfig.forRole(this, roleId) }
 
     // 抬高偏移预览来源标记（与四边边界判定线共用引用计数体系，互不干扰）
     private val imeOwner = Any()
@@ -99,7 +100,7 @@ class RangeSettingsActivity : AppCompatActivity() {
     /** 实际执行「恢复本页默认」：把阈值页记录的默认值写回 PetConfig，再统一走 refreshUI 全量重建 UI。
      * 与「重置系统」(resetSystemNow) 同一条刷新路径，避免手工逐控件回填漏项导致只恢复一部分。 */
     private fun resetDefaultNow() {
-        runBlocking { config.resetFromBounds(PetBounds(this@RangeSettingsActivity), SettingsPage.RANGE) }
+        runBlocking { config.resetFromBounds(PetBounds.forRole(this@RangeSettingsActivity, roleId), SettingsPage.RANGE) }
         refreshUI()
     }
 
@@ -116,8 +117,8 @@ class RangeSettingsActivity : AppCompatActivity() {
     /** 实际执行「重置系统默认值与阈值」：bounds 回落系统出厂并联动刷新本页（重绑滑块行程到新阈值）。 */
     private fun resetSystemNow() {
         runBlocking {
-            PetBounds(this@RangeSettingsActivity).resetSystem(SettingsPage.RANGE)
-            config.resetFromBounds(PetBounds(this@RangeSettingsActivity), SettingsPage.RANGE)
+            PetBounds.forRole(this@RangeSettingsActivity, roleId).resetSystem(SettingsPage.RANGE)
+            config.resetFromBounds(PetBounds.forRole(this@RangeSettingsActivity, roleId), SettingsPage.RANGE)
         }
         // 关键：必须走 refreshUI 重绑滑块行程（setupOffset 闭包里的 from/to），
         // 否则滑块仍按「先在阈值页改过的旧上下界」映射，重置后范围不更新、显示异常。
@@ -198,7 +199,7 @@ class RangeSettingsActivity : AppCompatActivity() {
     // 使从阈值页返回时滑块行程（最新上下界）即时热更新。
     // 重绑前 clear 旧监听器，避免 addOnChangeListener 叠加。
     private fun refreshUI() {
-        val bs = PetBounds(this).getBlocking(SettingsPage.RANGE)
+        val bs = PetBounds.forRole(this@RangeSettingsActivity, roleId).getBlocking(SettingsPage.RANGE)
         val bOf = { key: String -> bs.sliders.first { it.key == key } }
 
         // 拖动四边偏移时，根据四个滑块当前业务值刷新桌面边界判定线
