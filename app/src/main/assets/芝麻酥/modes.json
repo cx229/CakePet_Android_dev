@@ -151,10 +151,10 @@
       "nextMode": "sit_clam",
       "walkSpeed": 0,
       "frames": [
-        {"res": "探头/probe_head-4.png", "next": 1, "delay": [70, 80],"anchorY": 75},
-        {"res": "探头/probe_head-2.png", "next": 2, "delay": [70, 80],"anchorY": 75},
-        {"res": "探头/probe_head-1.png", "next": 3, "delay": [1000, 5000],"anchorY": 75},
-        {"res": "探头/probe_head-2.png", "next": 2, "delay": [150, 300],"anchorY": 75}
+        {"res": "探头/probe_head-4.png", "next": 1, "delay": [70, 80],"anchorY": 11},
+        {"res": "探头/probe_head-2.png", "next": 2, "delay": [70, 80],"anchorY": 11},
+        {"res": "探头/probe_head-1.png", "next": 3, "delay": [1000, 5000],"anchorY": 11},
+        {"res": "探头/probe_head-2.png", "next": 2, "delay": [150, 300],"anchorY": 11}
       ]
     },
     "snap_head": {
@@ -165,10 +165,10 @@
       "nextMode": null,
       "walkSpeed": 0,
       "frames": [
-        {"res": "探头/probe_head-4.png", "next": 1, "delay": [70, 80],"anchorY": 75},
-        {"res": "探头/probe_head-2.png", "next": 2, "delay": [70, 80],"anchorY": 75},
-        {"res": "探头/probe_head-1.png", "next": 3, "delay": [1000, 5000],"anchorY": 75},
-        {"res": "探头/probe_head-2.png", "next": 2, "delay": [150, 300],"anchorY": 75}
+        {"res": "探头/probe_head-4.png", "next": 1, "delay": [70, 80],"anchorY": 11},
+        {"res": "探头/probe_head-2.png", "next": 2, "delay": [70, 80],"anchorY": 11},
+        {"res": "探头/probe_head-1.png", "next": 3, "delay": [1000, 5000],"anchorY": 11},
+        {"res": "探头/probe_head-2.png", "next": 2, "delay": [150, 300],"anchorY": 11}
       ]
     },
     "snap_pat_head": {
@@ -179,11 +179,11 @@
       "nextMode": "snap_head",
       "walkSpeed": 0,
       "frames": [
-        {"res": "探头摸摸头/probe_pat_head-1.png", "next": 1, "delay": [105, 110],"anchorY": 75},
-        {"res": "探头摸摸头/probe_pat_head-2.png", "next": 2, "delay": [100, 110],"anchorY": 75},
-        {"res": "探头摸摸头/probe_pat_head-3.png", "next": 3, "delay": [100, 110],"anchorY": 75},
-        {"res": "探头摸摸头/probe_pat_head-4.png", "next": 4, "delay": [105, 110],"anchorY": 75},
-        {"res": "探头摸摸头/probe_pat_head-5.png", "next": 1, "delay": [105, 110],"anchorY": 75}
+        {"res": "探头摸摸头/probe_pat_head-1.png", "next": 1, "delay": [105, 110],"anchorY": 11},
+        {"res": "探头摸摸头/probe_pat_head-2.png", "next": 2, "delay": [100, 110],"anchorY": 11},
+        {"res": "探头摸摸头/probe_pat_head-3.png", "next": 3, "delay": [100, 110],"anchorY": 11},
+        {"res": "探头摸摸头/probe_pat_head-4.png", "next": 4, "delay": [105, 110],"anchorY": 11},
+        {"res": "探头摸摸头/probe_pat_head-5.png", "next": 1, "delay": [105, 110],"anchorY": 11}
       ]
     },
     "feed_fish": {
