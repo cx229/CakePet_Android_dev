@@ -115,8 +115,9 @@ data class PetConfigData(
     // 夜间模式强制开关：二者默认均关。强制打开优先级 > 强制关闭 > 跟随系统。
     val forceNightOn: Boolean = ConfigDefaults.FORCE_NIGHT_ON,         // 强制打开夜间模式
     val forceNightOff: Boolean = ConfigDefaults.FORCE_NIGHT_OFF,        // 强制关闭夜间模式
-    // 资源包：开启后使用 assets/芝麻酥/ 新图（关于页开关，默认关 = 沿用 assets/img/ 旧图）
-    val useNewSprite: Boolean = ConfigDefaults.USE_NEW_SPRITE,           // 使用新资源包
+    // 资源包：0=旧图 assets/img/、1=芝麻酥、2=芝麻球促销（关于页三选一，默认 1=芝麻酥）。
+    // 由旧版 useNewSprite 布尔迁移而来：true→1、false→0。
+    val spritePack: Int = ConfigDefaults.DEFAULT_SPRITE_PACK,            // 当前图片资源包
     // 仅单个碎碎念：开启=仅主实例显示碎碎念；关闭=每个实例各自显示（关于页开关，默认开）
     val singleTrayMsg: Boolean = ConfigDefaults.SINGLE_TRAY_MSG,
     // 投喂（支鱼）：随机掉落的单图可拖拽浮窗（拖动给酥则消失）
@@ -257,6 +258,8 @@ class PetConfig(private val context: Context) {
     private val KEY_PET_COUNT = androidx.datastore.preferences.core.intPreferencesKey("pet_count")
     private val KEY_FORCE_NIGHT_ON = booleanPreferencesKey("force_night_on")
     private val KEY_FORCE_NIGHT_OFF = booleanPreferencesKey("force_night_off")
+    private val KEY_SPRITE_PACK = androidx.datastore.preferences.core.intPreferencesKey("sprite_pack")
+    // 旧版布尔键（仅用于迁移读取，不再写入）
     private val KEY_USE_NEW_SPRITE = booleanPreferencesKey("use_new_sprite")
     private val KEY_SINGLE_TRAY_MSG = booleanPreferencesKey("single_tray_msg")
     // 静态资源（定格/食物）绝对显示边界
@@ -346,7 +349,10 @@ class PetConfig(private val context: Context) {
             petCount = (prefs[KEY_PET_COUNT] ?: ConfigDefaults.PET_COUNT).coerceIn(ConfigDefaults.PET_COUNT_MIN, ConfigDefaults.PET_COUNT_MAX),
             forceNightOn = prefs[KEY_FORCE_NIGHT_ON] ?: ConfigDefaults.FORCE_NIGHT_ON,
             forceNightOff = prefs[KEY_FORCE_NIGHT_OFF] ?: ConfigDefaults.FORCE_NIGHT_OFF,
-            useNewSprite = prefs[KEY_USE_NEW_SPRITE] ?: ConfigDefaults.USE_NEW_SPRITE,
+            // 资源包：优先读新 int 键；缺失时由旧版 boolean 键迁移（true→1 芝麻酥，false→0 旧图）。
+            spritePack = prefs[KEY_SPRITE_PACK]
+                ?: (prefs[KEY_USE_NEW_SPRITE]?.let { if (it) 1 else 0 }
+                    ?: ConfigDefaults.DEFAULT_SPRITE_PACK),
             singleTrayMsg = prefs[KEY_SINGLE_TRAY_MSG] ?: ConfigDefaults.SINGLE_TRAY_MSG,
             forceOpaque = prefs[KEY_FORCE_OPAQUE] ?: ConfigDefaults.FORCE_OPAQUE,
             // 投喂（支鱼）
@@ -487,7 +493,7 @@ class PetConfig(private val context: Context) {
             prefs[KEY_PET_COUNT] = updated.petCount
             prefs[KEY_FORCE_NIGHT_ON] = updated.forceNightOn
             prefs[KEY_FORCE_NIGHT_OFF] = updated.forceNightOff
-            prefs[KEY_USE_NEW_SPRITE] = updated.useNewSprite
+            prefs[KEY_SPRITE_PACK] = updated.spritePack
             prefs[KEY_SINGLE_TRAY_MSG] = updated.singleTrayMsg
             prefs[KEY_FORCE_OPAQUE] = updated.forceOpaque
             // 投喂（支鱼）

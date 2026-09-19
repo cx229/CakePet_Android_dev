@@ -104,7 +104,7 @@ class PetService : Service() {
         var expireRunnable: Runnable? = null
     )
     private val fishLayers = mutableListOf<FishLayer>()
-    private var fishBitmap: Bitmap? = null        // 原始支鱼图（按 useNewSprite 选资源包）
+    private var fishBitmap: Bitmap? = null        // 原始支鱼图（按当前资源包选路径）
     private var fishCropBitmap: Bitmap? = null      // 裁剪到最小不透明像素矩形后的图（窗口按此尺寸 * 倍率）
     private var fishSpawning = false
     // 上次生效的投喂配置，用于检测变化并即时作用于全部已有支鱼浮窗
@@ -487,9 +487,10 @@ class PetService : Service() {
     private var thinkingOffsetY = 0f   // 碎碎念距屏幕底部的偏移（像素），与 trayMsgManager 同步，供辅助线计算
     // 仅单个碎碎念：开启=仅主实例(index 0)显示；关闭=每个实例各自显示（关于页开关，默认开）
     private var singleTrayMsg = ConfigDefaults.SINGLE_TRAY_MSG
-    // 资源包：当前是否“使用新资源”（关于页开关映射）及已构建的新包缓存（assets 扫描仅一次）。
-    private var useNewSpriteFlag = false
+    // 资源包：当前资源包 id（0=旧图 / 1=芝麻酥 / 2=芝麻球促销）及各新包构建缓存（assets 扫描仅一次）。
+    private var currentSpritePackId = ConfigDefaults.DEFAULT_SPRITE_PACK
     private var zhimasuSpritePack: SpritePack? = null
+    private var zhimaqiuSpritePack: SpritePack? = null
 
     // 设置页调整“边界偏移/碎碎念偏移”时显示的黑色虚线辅助层（GuideLineView）。
     // 它是【独立窗口】（NOT_TOUCHABLE、显式尺寸），由 syncGuideWindow 按需挂载/卸载，
@@ -1001,9 +1002,9 @@ class PetService : Service() {
         }
         // 重新应用当前共享配置（物理参数/缩放/碎碎念样式/点击穿透等），新实例据此拿到配置、现有实例幂等刷新。
         applySharedConfig(c)
-        // 资源包：按当前开关重应用（避免改数量时退回默认资源）。
-        if (useNewSpriteFlag) {
-            val pack = spritePackFor(true)
+        // 资源包：按当前选择重应用（避免改数量时退回默认资源）。
+        if (currentSpritePackId != 0) {
+            val pack = spritePackFor(currentSpritePackId)
             pets.forEach { it.view.applySpritePack(pack) }
         }
         recalcBounds()
@@ -1049,10 +1050,12 @@ class PetService : Service() {
         applyImeHide(keyboardUp)
     }
 
-    /** 根据开关选择资源包：默认=旧图；开启=“芝麻酥”新图（assets 扫描仅一次并缓存）。 */
-    private fun spritePackFor(useNew: Boolean): SpritePack =
-        if (useNew) (zhimasuSpritePack ?: ImageModeManager.zhimasuPack(this).also { zhimasuSpritePack = it })
-        else ImageModeManager.DEFAULT_SPRITE_PACK
+    /** 根据资源包 id 选择资源包：0=旧图、1=芝麻酥、2=芝麻球促销（assets 扫描仅一次并缓存）。 */
+    private fun spritePackFor(packId: Int): SpritePack = when (packId) {
+        1 -> zhimasuSpritePack ?: ImageModeManager.zhimasuPack(this).also { zhimasuSpritePack = it }
+        2 -> zhimaqiuSpritePack ?: ImageModeManager.zhimaqiuPack(this).also { zhimaqiuSpritePack = it }
+        else -> ImageModeManager.DEFAULT_SPRITE_PACK
+    }
 
     // ======================== 投喂（支鱼）浮窗 ========================
 
@@ -1106,11 +1109,15 @@ class PetService : Service() {
         else Bitmap.createScaledBitmap(base, outW, outH, true).also { if (it != base) base.recycle() }
     }
 
-    // 加载并裁剪支鱼位图（按 useNewSprite 选资源包）；已缓存则直接复用。
+    // 加载并裁剪支鱼位图（按当前资源包 id 选路径）；已缓存则直接复用。
     private fun ensureFishBitmap() {
         if (fishCropBitmap != null && !fishCropBitmap!!.isRecycled) return
         try {
-            val path = if (useNewSpriteFlag) "芝麻酥/支鱼/fish-1.png" else "img/支鱼/fish-1.png"
+            val path = when (currentSpritePackId) {
+                1 -> "芝麻酥/支鱼/fish-1.png"
+                2 -> "芝麻球促销/支鱼/fish-1.png"
+                else -> "img/支鱼/fish-1.png"
+            }
             fishBitmap?.recycle()
             fishBitmap = decodeFishBitmap(path)
             fishCropBitmap = fishBitmap?.let { cropToTightLocal(it) }
@@ -1223,7 +1230,7 @@ class PetService : Service() {
      * 投食结束【不还原】镜像，下一动作沿用该朝向。
      */
     private fun triggerFeedAction(inst: PetInstance?, relX: Float, relY: Float) {
-        if (inst == null || !useNewSpriteFlag) return
+        if (inst == null || currentSpritePackId == 0) return
         val view = inst.view
         val name = when {
             view.physics.isSnapped -> ImageModeManager.SNAP_FEED_FISH
@@ -1511,10 +1518,10 @@ class PetService : Service() {
         singleTrayMsg = c.singleTrayMsg
         // 碎碎念：独立浮窗，可见性跟随宠物（visible && enabled），按实例错开高度
         applySharedConfig(c)
-        // 资源包：根据“使用新资源”开关初始化（默认关=旧图）。pets 已在 initPetView 创建完毕。
-        useNewSpriteFlag = c.useNewSprite
-        if (useNewSpriteFlag) {
-            val pack = spritePackFor(true)
+        // 资源包：根据当前选择初始化（0=旧图 / 1=芝麻酥 / 2=芝麻球促销）。pets 已在 initPetView 创建完毕。
+        currentSpritePackId = c.spritePack
+        if (currentSpritePackId != 0) {
+            val pack = spritePackFor(currentSpritePackId)
             pets.forEach { it.view.applySpritePack(pack) }
         }
         // 体感重力：同步开关与强度，并按需启停传感器。
@@ -1683,10 +1690,10 @@ class PetService : Service() {
             singleTrayMsg = c.singleTrayMsg
             thinkingOffsetY = c.thinkingOffset
             applySharedConfig(c)
-            // 资源包切换：仅当开关变化时才重建 ImageModeManager 并复位到静坐（低频，可接受短暂停顿）。
-            if (c.useNewSprite != useNewSpriteFlag) {
-                useNewSpriteFlag = c.useNewSprite
-                val pack = spritePackFor(useNewSpriteFlag)
+            // 资源包切换：仅当包 id 变化时才重建 ImageModeManager 并复位到静坐（低频，可接受短暂停顿）。
+            if (c.spritePack != currentSpritePackId) {
+                currentSpritePackId = c.spritePack
+                val pack = spritePackFor(currentSpritePackId)
                 pets.forEach { it.view.applySpritePack(pack) }
                 reloadFishBitmap()
             }

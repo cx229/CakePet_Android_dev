@@ -89,6 +89,23 @@ class ImageModeManager(
                 forceBottomCenterAnchor = true
             )
         }
+
+        /**
+         * “芝麻球促销”资源包：旧 assets/img/ 原图（128）仅重排子目录 + 新动作（投食/探头投食等），
+         * 同样以“子目录/文件名”给出 res（如 "安静/sit_clam-1.png"），拼 “芝麻球促销/” 前缀即可定位。
+         * decodeTarget=0（原生 128 尺寸）、forceBottomCenterAnchor 由 JSON(false) 驱动。
+         */
+        @Suppress("UNUSED_PARAMETER")
+        fun zhimaqiuPack(ctx: android.content.Context): SpritePack {
+            return SpritePack(
+                id = "zhimaqiu",
+                resolve = { "芝麻球促销/$it" },
+                configPath = "芝麻球促销/modes.json",
+                decodeTarget = 0,                 // 沿用旧图原生尺寸
+                anchorRes = 128,
+                forceBottomCenterAnchor = false
+            )
+        }
     }
 
     /** 单帧定义：资源名、下一帧索引（null=序列结束）、时延(ms)、锚点(图片像素坐标，对齐 PC image_meta) */

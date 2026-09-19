@@ -472,8 +472,9 @@ object ConfigDefaults {
     val PET_COUNT_MAX = 30                // 数量上限（UI 约束；阈值页极限范围可到 30，启动时硬限 3 防崩溃）
     val FORCE_NIGHT_ON = false            // 强制夜间模式（始终暗色调试用）
     val FORCE_NIGHT_OFF = false           // 强制关闭夜间模式
-    // 资源包：是否使用“芝麻酥”新图（关于页开关，默认关 = 沿用 assets/img/ 旧图）。
-    val USE_NEW_SPRITE = true
+    // 资源包：当前使用的图片资源包（关于页三选一）。0=旧图 assets/img/、1=芝麻酥、2=芝麻球促销。
+    // 默认走芝麻酥（与旧版 USE_NEW_SPRITE=true 行为一致）。
+    val DEFAULT_SPRITE_PACK = 1
     // 仅单个碎碎念：开启=仅主实例显示碎碎念；关闭=每个实例各自显示（关于页开关，默认开）。
     val SINGLE_TRAY_MSG = true
     // 投喂（支鱼）：随机掉落的单图可拖拽浮窗（拖动给酥则消失）

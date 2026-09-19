@@ -47,7 +47,7 @@ class AboutActivity : AppCompatActivity() {
         val tvCtrlBoxVo = findViewById<android.widget.EditText>(R.id.tv_ctrl_box_vo)
         val swForceNightOn = findViewById<Switch>(R.id.sw_force_night_on)
         val swForceNightOff = findViewById<Switch>(R.id.sw_force_night_off)
-        val swUseNewSprite = findViewById<Switch>(R.id.sw_use_new_sprite)
+        val rgSpritePack = findViewById<RadioGroup>(R.id.rg_sprite_pack)
         val sbStaticTop = findViewById<SeekBar>(R.id.sb_static_top)
         val sbStaticBottom = findViewById<SeekBar>(R.id.sb_static_bottom)
         val tvStaticTop = findViewById<android.widget.EditText>(R.id.tv_static_top)
@@ -99,7 +99,13 @@ class AboutActivity : AppCompatActivity() {
             EditSync.setText(tvCtrlBoxVo, (sbCtrlBoxVo.progress - 128).toString())
             swForceNightOn.isChecked = c.forceNightOn
             swForceNightOff.isChecked = c.forceNightOff
-            swUseNewSprite.isChecked = c.useNewSprite
+            rgSpritePack.check(
+                when (c.spritePack) {
+                    1 -> R.id.rb_pack_zhimasu
+                    2 -> R.id.rb_pack_zhimaqiu
+                    else -> R.id.rb_pack_img
+                }
+            )
             sbStaticTop.progress = (c.staticTopBound + 200).coerceIn(0, 600)
             sbStaticBottom.progress = (c.staticBottomBound + 200).coerceIn(0, 600)
             EditSync.setText(tvStaticTop, c.staticTopBound.toString())
@@ -157,10 +163,15 @@ class AboutActivity : AppCompatActivity() {
             }
             if (b) swForceNightOn.isChecked = false
         }
-        // 资源包：开启后使用 assets/芝麻酥/ 新图（默认关 = 沿用 assets/img/ 旧图）。
-        // 切换由 PetService 监听 useNewSprite 变化重建 ImageModeManager 生效。
-        swUseNewSprite.setOnCheckedChangeListener { _, b ->
-            lifecycleScope.launch { config.update { it.copy(useNewSprite = b) } }
+        // 资源包：三选一（0=旧图 / 1=芝麻酥 / 2=芝麻球促销）。
+        // 切换由 PetService 监听 spritePack 变化重建 ImageModeManager 生效。
+        rgSpritePack.setOnCheckedChangeListener { _, checkedId ->
+            val pack = when (checkedId) {
+                R.id.rb_pack_zhimasu -> 1
+                R.id.rb_pack_zhimaqiu -> 2
+                else -> 0
+            }
+            lifecycleScope.launch { config.update { it.copy(spritePack = pack) } }
         }
         // 调试边框：显示边框（图片窗口+锚点十字）/ 控制边框（命中可视化），分别控制 PetView 的两个调试层。
         swImageBorder.setOnCheckedChangeListener { _, b ->
