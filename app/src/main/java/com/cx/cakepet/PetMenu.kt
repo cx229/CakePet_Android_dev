@@ -19,7 +19,8 @@ import android.widget.FrameLayout
  */
 class PetMenu(
     private val service: PetService,
-    private val petView: PetView
+    private val petView: PetView,
+    private val roleId: String
 ) {
     private val wm = service.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
@@ -225,9 +226,9 @@ class PetMenu(
             interactView?.visibility = View.GONE
             freezeMoreView?.visibility = View.VISIBLE
         }
-        // 投食：立即刷出一条支鱼并重置随机刷出计时，随即关闭浮窗（与分身操作一致：避免浮窗遮挡）。
+        // 投食：立即刷出一条【本角色】支鱼并重置随机刷出计时，随即关闭浮窗（与分身操作一致：避免浮窗遮挡）。
         v.findViewById<View>(R.id.feed_now).setOnClickListener {
-            service.feedNow()
+            service.feedNow(roleId)
             dismiss()
         }
         // 重置大小：把宠物大小恢复为用户默认值（所有分身共享、即时生效），随即关闭浮窗
@@ -332,7 +333,7 @@ class PetMenu(
             interactView?.visibility = View.VISIBLE
         }
         v.findViewById<View>(R.id.feed_now).setOnClickListener {
-            service.feedNow()
+            service.feedNow(roleId)
             dismiss()
         }
         v.findViewById<View>(R.id.reset_size).setOnClickListener {

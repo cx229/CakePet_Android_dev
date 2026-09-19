@@ -117,11 +117,13 @@ class PetService : Service() {
         val lp: WindowManager.LayoutParams,
         val time: Long = System.currentTimeMillis(),  // 投食（支鱼）掉落的时刻，供食物浮窗顶部展示
         val borderView: View? = null,   // 投喂边框开关开启时的红色真实窗口边框（NOT_TOUCHABLE）
-        var expireRunnable: Runnable? = null
+        var expireRunnable: Runnable? = null,
+        val crop: Bitmap? = null,        // 本角色支鱼裁剪图（按 packId 缓存，避免多角色串图）
+        val packId: Int = 1              // 本角色资源包 id，供尺寸/重载按角色取图
     )
     private val fishLayers = mutableListOf<FishLayer>()
-    private var fishBitmap: Bitmap? = null        // 原始支鱼图（按当前资源包选路径）
-    private var fishCropBitmap: Bitmap? = null      // 裁剪到最小不透明像素矩形后的图（窗口按此尺寸 * 倍率）
+    // 支鱼图按资源包 id 分角色缓存（避免多角色并存时某角色包覆盖全局、导致投食鱼串角色）。
+    private val fishCropBitmaps = mutableMapOf<Int, Bitmap?>()   // 裁剪到最小不透明像素矩形后的图，key=packId
     private var fishSpawning = false
     // 上次生效的投喂配置，用于检测变化并即时作用于全部已有支鱼浮窗
     private var lastFeedingEnabled = ConfigDefaults.FEEDING_ENABLED
@@ -620,23 +622,28 @@ class PetService : Service() {
             // 钳制已在 physics.setBounds 内完成（min/max 为窗口范围，由 recalcBoundsFor 用 getBaseAnchorScaled
             // 同源换算）。移动/速度/拖拽/抛掷直接改 physics.x/y，与锚点解耦 → 锚点变化不再牵动位置。
             // 主实例尺寸 (w,h) 同时用于调试浮层/吸附线绘制。
-            val v0 = petView
+            // 主实例 = 实时 pets[0]，禁止再用缓存别名 petView/layoutParams。
+            // 别名仅在“最后召唤角色”创建时赋值一次，多角色并存或召回后易与 pets[0] 错位，
+            // 会导致主实例控制窗被帧循环漏更（且被 i>=1 克隆循环跳过）→ 控制窗卡死、显示窗照动。
+            val mainInst = pets.getOrNull(0)
+            val v0 = mainInst?.view ?: petView
+            val mlp = mainInst?.layoutParams ?: layoutParams
             // 主实例整帧尺寸（调试浮层/吸附线仍按整只宠物绘制，与命中模式无关）。
             // 必须用 getBaseBitmapSize()：与 recalcBounds/getBaseAnchorScaled（基准帧 baseFrameW/H）
             // 及 render/PetStageView 实际绘制窗口完全同源；getBitmapSize()(globalW) 与之不符会导致控制窗尺寸错位。
             // 控制窗定位：单一数据源 placeControlWindow（CORE=脚盒、其余=整帧），尺寸变化才写 width/height。
-            if (placeControlWindow(v0, layoutParams, lastW, lastH)) {
-                lastW = layoutParams.width
-                lastH = layoutParams.height
+            if (placeControlWindow(v0, mlp, lastW, lastH)) {
+                lastW = mlp.width
+                lastH = mlp.height
             }
             // 主实例整帧尺寸（调试浮层 updateDebug 仍按整只宠物绘制，与命中模式无关）。
             val (w, h) = v0.getBaseBitmapSize()
             try {
-                windowManager.updateViewLayout(petView, layoutParams)
+                windowManager.updateViewLayout(v0, mlp)
             } catch (_: Exception) {
             }
             // 主实例显示窗同步（位置/尺寸与位图矩形一致；窗外穿透由 NOT_TOUCH_MODAL 保证）。
-            pets.getOrNull(0)?.let { syncDisplayWindow(it) }
+            mainInst?.let { syncDisplayWindow(it) }
             // 其余实例：各自写位置 + 尺寸 + 刷新（不依赖主实例 lastW/lastH）。
             for (i in 1 until pets.size) {
                 val inst = pets[i]
@@ -1114,28 +1121,35 @@ class PetService : Service() {
         else Bitmap.createScaledBitmap(base, outW, outH, true).also { if (it != base) base.recycle() }
     }
 
-    // 加载并裁剪支鱼位图（按当前资源包 id 选路径）；已缓存则直接复用。
-    private fun ensureFishBitmap() {
-        if (fishCropBitmap != null && !fishCropBitmap!!.isRecycled) return
+    // 加载并裁剪支鱼位图（按资源包 packId 选路径，逐角色缓存）；已缓存则直接复用。
+    private fun ensureFishBitmap(packId: Int) {
+        val existing = fishCropBitmaps[packId]
+        if (existing != null && !existing.isRecycled) return
         try {
-            val path = when (currentSpritePackId) {
+            val path = when (packId) {
                 1 -> "芝麻酥/支鱼/fish-1.png"
                 2 -> "芝麻球促销/支鱼/fish-1.png"
                 3 -> "白酥/支鱼/fish-1.png"
                 else -> "芝麻酥/支鱼/fish-1.png"
             }
-            fishBitmap?.recycle()
-            fishBitmap = decodeFishBitmap(path)
-            fishCropBitmap = fishBitmap?.let { cropToTightLocal(it) }
+            val raw = decodeFishBitmap(path)
+            fishCropBitmaps[packId] = raw?.let { cropToTightLocal(it) }
+            raw?.recycle()
         } catch (_: Exception) {
-            fishBitmap = null
-            fishCropBitmap = null
+            fishCropBitmaps[packId] = null
         }
     }
 
-    private fun getFishCropBitmap(): Bitmap? {
-        ensureFishBitmap()
-        return fishCropBitmap
+    private fun getFishCropBitmap(packId: Int): Bitmap? {
+        ensureFishBitmap(packId)
+        return fishCropBitmaps[packId]
+    }
+
+    // 按角色解析支鱼资源包 id（用该角色自身 spritePack，绝不取全局 currentSpritePackId）。
+    private fun fishPackIdForRole(roleId: String?): Int {
+        val id = roleId ?: return ConfigDefaults.DEFAULT_SPRITE_PACK
+        return engines[id]?.config?.getBlocking()?.spritePack ?: RoleRegistry.byId(id)?.packId
+            ?: ConfigDefaults.DEFAULT_SPRITE_PACK
     }
 
     // 支鱼显示尺寸：源已缩到 256（长边）仅作解码清晰度缓冲，1x 显示基准与宠物一致为 128（长边），
@@ -1148,21 +1162,14 @@ class PetService : Service() {
         return wpx to hpx
     }
 
-    // 资源包切换时重载支鱼位图，并同步应用到全部已有浮窗。
+    // 资源包切换时重载支鱼位图：按每条鱼自身 packId 取本角色图（避免跨角色串图）。
     private fun reloadFishBitmap() {
-        fishBitmap?.recycle()
-        fishCropBitmap?.recycle()
-        fishBitmap = null
-        fishCropBitmap = null
-        ensureFishBitmap()
-        val crop = fishCropBitmap ?: return
-        val c = currentConfig()
-        val (wpx, hpx) = fishDisplaySize(crop, c)
         for (layer in fishLayers) {
+            ensureFishBitmap(layer.packId)
+            val crop = fishCropBitmaps[layer.packId] ?: continue
             layer.iv.setImageBitmap(crop)
-            layer.lp.width = wpx
-            layer.lp.height = hpx
-            layer.iv.imageAlpha = (c.feedingFishAlpha / 100f * 255).toInt().coerceIn(0, 255)
+            layer.lp.width = crop.width
+            layer.lp.height = crop.height
             try { windowManager.updateViewLayout(layer.iv, layer.lp) } catch (_: Exception) {}
             layer.borderView?.let { bv ->
                 val blp = bv.layoutParams as? WindowManager.LayoutParams
@@ -1290,9 +1297,9 @@ class PetService : Service() {
         return y.coerceIn(minY, maxY)
     }
 
-    // 刷出一条支鱼（随机位置 / 当前倍率 / 透明度 / 边框 / 自动过期）。
-    private fun spawnFish(c: PetConfigData) {
-        val crop = getFishCropBitmap() ?: return
+    // 刷出一条支鱼（按本角色 packId 取图，避免多角色串图；随机位置 / 当前倍率 / 透明度 / 边框 / 自动过期）。
+    private fun spawnFish(c: PetConfigData, packId: Int) {
+        val crop = getFishCropBitmap(packId) ?: return
         val (wpx, hpx) = fishDisplaySize(crop, c)
         val iv = ImageView(this).apply {
             setImageBitmap(crop)
@@ -1337,7 +1344,7 @@ class PetService : Service() {
         }
         iv.setOnTouchListener(fishDragListener)
         try { windowManager.addView(iv, lp) } catch (_: Exception) { return }
-        val layer = FishLayer(iv, lp)
+        val layer = FishLayer(iv, lp, crop = crop, packId = packId)
         fishLayers.add(layer)
         if (c.feedingBorderShow) setFishBorder(layer, true)
         if (c.feedingAutoExpire) scheduleFishExpire(layer, c.feedingExpireTime)
@@ -1414,11 +1421,11 @@ class PetService : Service() {
         return bv
     }
 
-    // 倍率 / 透明度变化：即时作用于全部已有支鱼浮窗。
+    // 倍率 / 透明度变化：即时作用于全部已有支鱼浮窗（尺寸按每条鱼自身裁剪图计算，避免跨角色串尺寸）。
     private fun applyFishScaleAlpha(c: PetConfigData) {
-        val crop = getFishCropBitmap() ?: return
-        val (wpx, hpx) = fishDisplaySize(crop, c)
         for (layer in fishLayers) {
+            val crop = layer.crop ?: continue
+            val (wpx, hpx) = fishDisplaySize(crop, c)
             layer.lp.width = wpx
             layer.lp.height = hpx
             layer.iv.imageAlpha = (c.feedingFishAlpha / 100f * 255).toInt().coerceIn(0, 255)
@@ -1453,7 +1460,8 @@ class PetService : Service() {
             if (!fishSpawning) return
             val c = currentConfig()
             if (c.feedingEnabled && fishLayers.size < c.feedingMaxCount) {
-                spawnFish(c)
+                // 自动随机刷出的鱼：用当前主角色包（环境态鱼，落地投喂时会在 drop 处替换为被投喂角色的鱼）。
+                spawnFish(c, currentSpritePackId)
             }
             scheduleFishSpawn(c)
         }
@@ -1472,11 +1480,11 @@ class PetService : Service() {
         scheduleFishSpawn(currentConfig())
     }
 
-    // 交互菜单「投食」：立即刷出一条支鱼（受最大数量约束），并重置随机刷出计时（关闭浮窗由调用方处理）。
-    fun feedNow() {
+    // 交互菜单「投食」：立即刷出一条【本角色】支鱼（受最大数量约束），并重置随机刷出计时（关闭浮窗由调用方处理）。
+    fun feedNow(roleId: String? = null) {
         val c = currentConfig()
         if (fishLayers.size < c.feedingMaxCount) {
-            spawnFish(c)
+            spawnFish(c, fishPackIdForRole(roleId))
         }
         // 仅当自动刷出运行中才重置计时：取消待触发的随机刷出，从当前时刻重新排程。
         if (fishSpawning) {
@@ -1826,6 +1834,8 @@ class PetService : Service() {
                 // 得到屏幕坐标系下的加速度（像素/秒^2）。平放时 sx,sy≈0 -> 宠物几乎不受力。
                 // TILT_GAIN：体感专属增益，只作用于体感，不改变四边重力的 gravity 语义。
                 pets.forEach { inst ->
+                    // 仅本角色开启体感才写入设备重力向量；未开启的角色不受影响。
+                    if (!inst.view.physics.tiltGravity) return@forEach
                     val kr = (engines[inst.roleId]?.tiltStrength ?: tiltStrength) / 9.8f * TILT_GAIN
                     inst.view.physics.tiltGx = sx * kr
                     inst.view.physics.tiltGy = sy * kr
@@ -2142,6 +2152,9 @@ class PetService : Service() {
         if (view.physics.isSnapped) return
         // 重力·抛掷关闭时强制脚朝正下(0)，不随体感量化改朝向（onEach 已设 0）。
         if (!view.physics.gravityEnabled) return
+        // 仅本角色开启体感才按设备方向量化脚朝向；未开启体感的角色脚方向保持自身设置（四边/固定），
+        // 不随共享传感器被全局串成同一朝向。
+        if (!view.physics.tiltGravity) return
         val gx = view.physics.tiltGx
         val gy = view.physics.tiltGy
         val magX = kotlin.math.abs(gx)
@@ -2327,8 +2340,9 @@ class PetService : Service() {
         if (showSnapOffsetFlag) showSnapGuide(DEBUG_SNAP_OWNER) else releaseGuide(DEBUG_SNAP_OWNER)
         // 调试控制边框画在控制窗自身（与命中区几何严格同源，CORE 脚盒/整帧都精确贴合，
         // 且不受 hideStage 影响；hideControlLayer 时控制窗被移除、边框一并隐藏，符合“隐藏控制层”语义）。
+        // 注意：控制边框是【按角色独立】设置（applySharedConfig 已逐实例写入 inst.view.showControlBorder），
+        // 禁止用服务级全局 showControlBorder 广播覆盖，否则改 A 角色边框会串到全部角色。
         for (inst in pets) {
-            inst.view.showControlBorder = showControlBorder
             inst.view.invalidate()
         }
         drawCurrentGuide()
@@ -3055,7 +3069,8 @@ class PetService : Service() {
         // 悬浮在其它应用之上，不进入 app task、不抢前台；仅“设置”项才进入 app。
         // target = 触发长按的宠物，菜单动作只作用于该宠物（多数量下不再错误落到主实例 index 0）。
         petMenu?.dismiss()
-        petMenu = PetMenu(this, target).apply { show() }
+        val roleId = pets.firstOrNull { it.view === target }?.roleId ?: currentRoleId
+        petMenu = PetMenu(this, target, roleId).apply { show() }
     }
 
     private fun createNotificationChannel() {
@@ -3270,6 +3285,12 @@ class PetService : Service() {
             try { inst.petMsg.destroy() } catch (_: Exception) {}
         }
         pets.removeAll(removed)
+        // 别名 petView/layoutParams 仅“最后召唤角色”创建时赋值，移除后必须重指到当前 pets[0]，
+        // 否则它与实时列表错位（调试浮层/拖拽/帧循环其余引用会指向旧实例）。
+        pets.getOrNull(0)?.let { first ->
+            petView = first.view
+            layoutParams = first.layoutParams
+        }
         clearAllFreeze()
         engines.remove(roleId)
         // 通知首页：该角色已退场（在屏状态变化）。
