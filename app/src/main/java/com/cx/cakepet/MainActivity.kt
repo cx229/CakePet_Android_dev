@@ -1,6 +1,7 @@
 package com.cx.cakepet
 
 import android.app.ActivityManager
+import androidx.appcompat.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -41,6 +42,14 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // 云端构建链路验证：仅在首次创建首页时展示一次测试弹窗。
+        if (savedInstanceState == null) {
+            AlertDialog.Builder(this)
+                .setMessage("hi！")
+                .setPositiveButton("确定", null)
+                .show()
+        }
 
         binding.btnStart.setOnClickListener { onStartOrRecall() }
         binding.btnSettings.setOnClickListener {
