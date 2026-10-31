@@ -1,0 +1,32 @@
+name: Sync public main into dev main (one-time)
+
+on:
+  push:
+    branches:
+      - test
+    paths:
+      - .github/workflows/sync-public-main.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dev repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch and fast-forward dev main from public main
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git fetch https://github.com/cx229/CakePet_Android.git main
+          DEV_SHA=$(git rev-parse origin/main)
+          PUBLIC_SHA=$(git rev-parse FETCH_HEAD)
+          echo "Dev main: $DEV_SHA"
+          echo "Public main: $PUBLIC_SHA"
+          git merge-base --is-ancestor "$DEV_SHA" "$PUBLIC_SHA" || { echo "Not a fast-forward; refusing to sync"; exit 1; }
+          git push origin "$PUBLIC_SHA":refs/heads/main
