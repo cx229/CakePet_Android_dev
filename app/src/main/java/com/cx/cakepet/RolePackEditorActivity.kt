@@ -852,6 +852,7 @@ class RolePackEditorActivity : AppCompatActivity() {
                 (labels.getChildAt(1) as TextView).text = "${frame.opt("delay")} ms"
                 (labels.getChildAt(2) as TextView).text = source
                 image.setImageBitmap(thumbs.getOrPut(source) { thumb(File(draft, source)) })
+                image.scaleX = if (frame.optBoolean("flipX", false)) -1f else 1f
                 val at = holder.bindingAdapterPosition
                 select.setOnCheckedChangeListener(null)
                 select.isChecked = at in bulkSelected
@@ -925,7 +926,8 @@ class RolePackEditorActivity : AppCompatActivity() {
         val tick = object : Runnable {
             override fun run() {
                 if (screen != "mode" || modeId != key) return
-                view.update(clip.currentBitmap(), manager.previewContentBounds(clip.currentResName, clip.currentVerticalAlign),
+                view.update(clip.currentBitmap(), manager.previewContentBounds(
+                    clip.currentResName, clip.currentVerticalAlign, clip.currentFlipX),
                     clip.currentAnchor(), clip.currentDx, clip.currentDy, manager.currentPack.anchorRes,
                     clip.currentModeId, manager.currentPack.modeLoops[clip.currentModeId] == true,
                     clip.currentFrameIndex)
@@ -1405,6 +1407,16 @@ class RolePackEditorActivity : AppCompatActivity() {
                     override fun afterTextChanged(s: android.text.Editable?) { changed.add(name) }
                 })
             }
+            // Tri-state bulk edit: leave unchanged, turn on, or turn off.
+            // Never silently erase mixed per-frame mirror settings.
+            val mirrorOptions = arrayOf("不修改左右镜像", "开启左右镜像", "关闭左右镜像")
+            val mirrorSelection = Spinner(this).apply {
+                adapter = ArrayAdapter(this@RolePackEditorActivity,
+                    android.R.layout.simple_spinner_dropdown_item, mirrorOptions)
+                setSelection(0)
+            }
+            box.addView(text("左右镜像（批量）", 13f))
+            box.addView(mirrorSelection)
             val save: () -> Unit = {
                 val edits = changed.associateWith { name ->
                     val raw = fields.getValue(name).text.toString().trim()
@@ -1418,13 +1430,17 @@ class RolePackEditorActivity : AppCompatActivity() {
                         raw
                     } else if (raw.isEmpty()) JSONObject.NULL else raw.toDouble()
                 }
-                if (edits.isNotEmpty()) {
+                if (edits.isNotEmpty() || mirrorSelection.selectedItemPosition != 0) {
                     change { json ->
                         val current = json.getJSONObject("modes").getJSONObject(key).getJSONArray("frames")
                         indices.forEach { index ->
                             val frame = current.getJSONObject(index)
                             edits.forEach { (name, value) ->
                                 if (value === JSONObject.NULL) frame.remove(name) else frame.put(name, value)
+                            }
+                            when (mirrorSelection.selectedItemPosition) {
+                                1 -> frame.put("flipX", true)
+                                2 -> frame.put("flipX", false)
                             }
                         }
                     }
@@ -1483,6 +1499,11 @@ class RolePackEditorActivity : AppCompatActivity() {
             val dy = entry(box, "dy（空=默认）", optional(f, "dy"))
             val align = entry(box, "垂直填充 verticalAlign（top/center）",
                 f.optString("verticalAlign", "top"))
+            val flipX = CheckBox(this).apply {
+                text = "左右镜像（仅此帧，默认关闭）"
+                isChecked = f.optBoolean("flipX", false)
+            }
+            box.addView(flipX)
             val save: () -> Unit = {
                 val delays = delay.text.toString().split(",").map { it.trim().toLong() }
                 require(delays.size in 1..2 && delays[0] > 0 && (delays.size == 1 || delays[1] >= delays[0]))
@@ -1492,6 +1513,7 @@ class RolePackEditorActivity : AppCompatActivity() {
                     val alignment = align.text.toString().trim()
                     require(alignment in listOf("top", "center")) { "填充方式必须为 top 或 center" }
                     frame.put("verticalAlign", alignment)
+                    frame.put("flipX", flipX.isChecked)
                     listOf("anchorX" to anchorX, "anchorY" to anchorY, "dx" to dx, "dy" to dy).forEach { (name, input) ->
                         if (input.text.isBlank()) frame.remove(name)
                         else frame.put(name, input.text.toString().toDouble())
