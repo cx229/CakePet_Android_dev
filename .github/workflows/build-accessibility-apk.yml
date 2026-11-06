@@ -4,14 +4,34 @@ on:
   push:
     branches:
       - '**'
+  pull_request:
+    branches:
+      - fix/261106-gt-home-fold-author
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: write
+  issues: write
 
 jobs:
+  smoke:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Verify runner can execute commands
+        run: |
+          echo "CI runner reached" | tee smoke.txt
+          uname -a >> smoke.txt
+      - name: Upload runner probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-smoke-probe
+          path: smoke.txt
+          if-no-files-found: error
+          retention-days: 1
+
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - name: Checkout build branch
@@ -29,13 +49,15 @@ jobs:
           packages: 'platform-tools'
 
       - name: Install Android SDK 37
+        continue-on-error: true
         run: |
-          echo "Available API 37 packages:"
-          sdkmanager --list --channel=3 | grep -E "platforms;android-37|build-tools;37" || true
-          sdkmanager --channel=3 "platforms;android-37.0" "build-tools;37.0.0"
+          set -o pipefail
+          { sdkmanager --list --channel=3 | grep -E "platforms;android-37|build-tools;37" || true; sdkmanager --channel=3 "platforms;android-37.0" "build-tools;37.0.0"; } 2>&1 | tee sdk-install.log
 
-      - name: Set up Gradle cache
+      - name: Set up Gradle 9.5.0 and cache
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
 
       - name: Verify shared debug signing key
         run: |
@@ -43,16 +65,46 @@ jobs:
           keytool -list -keystore app/signing/cakepet-shared-debug.jks -storepass android -alias cakepet-debug
 
       - name: Build debug APK
-        run: bash ./gradlew --no-daemon assembleDebug
+        run: |
+          set -o pipefail
+          gradle --no-daemon --stacktrace assembleDebug 2>&1 | tee build-debug.log
 
       - name: Name GitHub test APK
-        run: mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/CakePet-v1.26.11.06.11.57-gt.apk
+        run: mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/CakePet-v1.26.11.06.14.01-gt.apk
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CakePet-build-diagnostics
+          path: |
+            build-debug.log
+            sdk-install.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Report failed build to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if test -f build-debug.log || test -f sdk-install.log; then
+            { test ! -f sdk-install.log || tail -c 5000 sdk-install.log; test ! -f build-debug.log || tail -c 10000 build-debug.log; } > build-tail.txt
+            {
+              echo 'Automated build failure diagnostic (last 15KB):'
+              echo '\`\`\`'
+              cat build-tail.txt
+              echo '\`\`\`'
+            } > failure-comment.md
+            gh pr comment "$PR_NUMBER" --body-file failure-comment.md || true
+          fi
 
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: CakePet-v1.26.11.06.11.57-gt-apk
+          name: CakePet-v1.26.11.06.14.01-gt-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14

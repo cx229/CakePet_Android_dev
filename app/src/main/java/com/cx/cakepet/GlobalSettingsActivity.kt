@@ -115,6 +115,29 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val nextRow = findViewById<View>(R.id.row_next)
         when (page) {
             PAGE_SETTINGS -> {
+                val watermarkLevelRow = findViewById<View>(R.id.row_import_watermark_level)
+                val levelGroup = findViewById<android.widget.RadioGroup>(R.id.rg_import_watermark_level)
+                levelGroup.check(when (ImportWatermark.level(this)) {
+                    ImportWatermark.Level.LOW -> R.id.rb_watermark_low
+                    ImportWatermark.Level.MEDIUM -> R.id.rb_watermark_medium
+                    ImportWatermark.Level.HIGH -> R.id.rb_watermark_high
+                })
+                levelGroup.setOnCheckedChangeListener { _, checkedId ->
+                    val strength = when (checkedId) {
+                        R.id.rb_watermark_low -> ImportWatermark.Level.LOW
+                        R.id.rb_watermark_high -> ImportWatermark.Level.HIGH
+                        else -> ImportWatermark.Level.MEDIUM
+                    }
+                    ImportWatermark.setLevel(this, strength)
+                }
+                findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.sw_import_watermark).apply {
+                    isChecked = ImportWatermark.enabled(this@GlobalSettingsActivity)
+                    watermarkLevelRow.visibility = if (isChecked) View.VISIBLE else View.GONE
+                    setOnCheckedChangeListener { _, checked ->
+                        ImportWatermark.setEnabled(this@GlobalSettingsActivity, checked)
+                        watermarkLevelRow.visibility = if (checked) View.VISIBLE else View.GONE
+                    }
+                }
                 findViewById<View>(R.id.row_user_habits).setOnClickListener {
                     startActivity(Intent(this, UserHabitsActivity::class.java))
                 }
@@ -130,12 +153,16 @@ class GlobalSettingsActivity : AppCompatActivity() {
                 nextRow.setOnClickListener { openPage(PAGE_DEBUG) }
             }
             PAGE_DEBUG -> {
+                findViewById<View>(R.id.row_import_watermark).visibility = View.GONE
+                findViewById<View>(R.id.row_import_watermark_level).visibility = View.GONE
                 findViewById<View>(R.id.backup_group).visibility = View.GONE
                 accessibilityRow.visibility = View.GONE
                 findViewById<TextView>(R.id.tv_next).text = "无障碍点击测试"
                 nextRow.setOnClickListener { openPage(PAGE_ACCESSIBILITY_TEST) }
             }
             else -> {
+                findViewById<View>(R.id.row_import_watermark).visibility = View.GONE
+                findViewById<View>(R.id.row_import_watermark_level).visibility = View.GONE
                 findViewById<View>(R.id.backup_group).visibility = View.GONE
                 // 实验尚未实现，按需求保留空白内容区。
                 accessibilityRow.visibility = View.GONE
