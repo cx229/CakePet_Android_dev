@@ -39,7 +39,38 @@ class RolePackEditorActivity : AppCompatActivity() {
     private val pageHistory = java.util.ArrayDeque<EditorPage>()
     private var restoringPage = false
     private val openedFunctionFolders = mutableSetOf<String>()
-    // 白酥示例与当前素材包无关；仅在功能卡片出现时读取，按路径缓存。
+    /** Lightweight traversal shared by current-role text and template-image selection.
+     *  No cached chains: any nextMode / loopMode edit is reflected immediately. */
+    private fun modeChain(start: String, modes: JSONObject): List<String> {
+        val steps = mutableListOf<String>()
+        val visited = mutableSetOf<String>()
+        var current = start
+        while (current.isNotBlank()) {
+            steps.add(current)
+            if (!visited.add(current)) {
+                steps.add("◎")
+                break
+            }
+            val mode = modes.optJSONObject(current) ?: break
+            val selectedLoop = mode.optString("loopMode")
+            val loop = if (selectedLoop in listOf("off", "timed", "infinite")) selectedLoop
+                       else when {
+                           !mode.optBoolean("loop", false) -> "off"
+                           mode.optJSONObject("duration") != null -> "timed"
+                           else -> "infinite"
+                       }
+            if (loop == "infinite") {
+                steps.add("∞")
+                break
+            }
+            current = mode.optString("nextMode")
+                .takeUnless { it.isBlank() || it == "null" }.orEmpty()
+        }
+        return steps
+    }
+
+    /** Preview is a fresh page-level random sample of one 白酥 function chain.
+     *  Each function keeps its chosen bitmap while this function page is shown. */
     private val templateExamples = mutableMapOf<String, android.graphics.Bitmap?>()
     private val templateJson: JSONObject? by lazy {
         runCatching {
@@ -47,7 +78,7 @@ class RolePackEditorActivity : AppCompatActivity() {
                 .bufferedReader().use { parseJsonc(it.readText()) }
         }.getOrNull()
     }
-    private fun templateFirstFrame(path: List<String>): android.graphics.Bitmap? {
+    private fun templateRandomFrame(path: List<String>): android.graphics.Bitmap? {
         val key = path.joinToString("/")
         if (templateExamples.containsKey(key)) return templateExamples[key]
         var cursor = templateJson?.optJSONObject("functions")
@@ -56,16 +87,35 @@ class RolePackEditorActivity : AppCompatActivity() {
         val modes = templateJson?.optJSONObject("modes")
         var bitmap: android.graphics.Bitmap? = null
         if (options != null && modes != null) {
-            for (index in 0 until options.length()) {
-                val res = modes.optJSONObject(options.optString(index))
-                    ?.optJSONArray("frames")?.optJSONObject(0)?.optString("res").orEmpty()
-                if (res.isBlank() || res.startsWith("/") ||
-                    res.split('/').any { it == ".." }) continue
-                bitmap = runCatching {
-                    assets.open("${RoleRegistry.DEFAULT.rootPath}/$res").use {
-                        BitmapFactory.decodeStream(it)
+            val starts = (0 until options.length()).map { options.optString(it) }
+                .filter { it.isNotBlank() }.shuffled()
+            for (start in starts) {
+                val chain = modeChain(start, modes)
+                    .filter { it != "∞" && it != "◎" }.distinct().shuffled()
+                for (modeName in chain) {
+                    val frames = modes.optJSONObject(modeName)?.optJSONArray("frames") ?: continue
+                    val resources = (0 until frames.length())
+                        .map { frames.optJSONObject(it)?.optString("res").orEmpty() }
+                        .filter { it.isNotBlank() }.shuffled()
+                    for (res in resources) {
+                        if (res.startsWith("/") || res.startsWith("\\") ||
+                            res.split('/', '\\').any { it == ".." }) continue
+                        bitmap = runCatching {
+                            val fullPath = "${RoleRegistry.DEFAULT.rootPath}/$res"
+                            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            assets.open(fullPath).use { BitmapFactory.decodeStream(it, null, bounds) }
+                            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) null
+                            else {
+                                val sample = (maxOf(bounds.outWidth, bounds.outHeight) / 128)
+                                    .coerceAtLeast(1)
+                                val options = BitmapFactory.Options().apply { inSampleSize = sample }
+                                assets.open(fullPath).use { BitmapFactory.decodeStream(it, null, options) }
+                            }
+                        }.getOrNull()
+                        if (bitmap != null) break
                     }
-                }.getOrNull()
+                    if (bitmap != null) break
+                }
                 if (bitmap != null) break
             }
         }
@@ -1997,7 +2047,7 @@ class RolePackEditorActivity : AppCompatActivity() {
             setPadding(0, px(2), 0, 0)
             setTextColor(getColor(if (examplePath == null) R.color.cp_note else R.color.cp_title))
         })
-        val bitmap = examplePath?.let { templateFirstFrame(it) }
+        val bitmap = examplePath?.let { templateRandomFrame(it) }
         if (bitmap == null) card.addView(content)
         else {
             val row = LinearLayout(this).apply {
@@ -2068,7 +2118,9 @@ class RolePackEditorActivity : AppCompatActivity() {
                     val selected = (0 until child.length()).map { child.optString(it) }
                         .filter { it.isNotBlank() }
                     functionItem(parent, "▣  " + functionPathName(currentPath) + "   ›",
-                        "当前动画：" + selected.joinToString("、"), path.size,
+                        "当前动画：" + selected.joinToString("，") { start ->
+                            "<" + modeChain(start, root.getJSONObject("modes")).joinToString("→") + ">"
+                        }, path.size,
                         description = functionDescription(currentPath), examplePath = currentPath) {
                         chooseFunctions(currentPath, selected)
                     }
@@ -2078,6 +2130,7 @@ class RolePackEditorActivity : AppCompatActivity() {
     }
 
     private fun functions() {
+        templateExamples.clear() // Refresh example choices on each full page load only.
         section("功能映射", "functions")
         panel.addView(text("决定角色在不同情况下播放的动画。\n点击文件夹展开，点击功能卡片编辑。", 12f).apply {
             setPadding(px(4), 0, px(4), px(6))
