@@ -2145,12 +2145,19 @@ class RolePackEditorActivity : AppCompatActivity() {
                                 leftMargin = px(((depth + 1) * 12).coerceAtMost(60))
                                 topMargin = px(3)
                             })
+                            var restoringBinding = false
                             check.setOnCheckedChangeListener { _, nowChecked ->
-                                if (!nowChecked && checked && leaves.getValue(key).second
+                                if (restoringBinding) return@setOnCheckedChangeListener
+                                if (!nowChecked && key in selected && leaves.getValue(key).second
                                         .filter { it != modeId }.isEmpty()) {
-                                    // Restore without firing another selection callback.
-                                    check.setOnCheckedChangeListener(null)
-                                    check.isChecked = true
+                                    // Temporarily suppress only the programmatic restore.
+                                    // Keep the listener installed for subsequent attempts.
+                                    restoringBinding = true
+                                    try {
+                                        check.isChecked = true
+                                    } finally {
+                                        restoringBinding = false
+                                    }
                                     warnLastBinding(path)
                                 } else {
                                     if (nowChecked) selected.add(key) else selected.remove(key)
