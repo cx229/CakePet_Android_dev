@@ -3922,7 +3922,8 @@ class PetService : Service() {
         applyNightMode(config.getBlocking())
         registerConfigObserver(rt)
         lastVisRect = getScreenBounds()
-        recalcBounds()
+        // Summon and Return Home use the same final physical coordinates.
+        placeRoleAtHome(roleId)
         startLoop()
         startRandomLoop(rt)
         // 通知首页：该角色已进入在屏状态（覆盖“服务异步启动”场景，避免卡片不刷新）。
@@ -4040,13 +4041,17 @@ class PetService : Service() {
 
     /** 归位：回到屏幕底部中心、静止（窗仍在，无状态变化）。卡片“召唤/归位”处于已召唤态时触发。
      *  纯归位，不翻转角色 visible 设置（与菜单 ACTION_RECALL 不同）。 */
-    fun returnHome(roleId: String) {
+    private fun placeRoleAtHome(roleId: String) {
         for (inst in pets.filter { it.roleId == roleId }) inst.view.forceReset()
         recalcBounds()
         for (inst in pets.filter { it.roleId == roleId }) {
             val p = inst.view.physics
             p.resetTo((p.minX + p.maxX) / 2f, p.maxY)
         }
+    }
+
+    fun returnHome(roleId: String) {
+        placeRoleAtHome(roleId)
     }
 
     /** 召回（退场）：撤该角色所有窗、停其循环，不影响其他在屏角色。不卸载、不丢配置/描述符。 */
