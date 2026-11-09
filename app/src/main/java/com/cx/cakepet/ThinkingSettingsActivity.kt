@@ -154,6 +154,54 @@ class ThinkingSettingsActivity : AppCompatActivity() {
         folding = SettingsFoldController(this).apply {
             add(R.id.sw_thinking_enabled, listOf(R.id.card_display, R.id.card_flash, R.id.card_bg))
         }
+        // A material-level text editor entry, independent of this instance's
+        // thinking display switch (which only controls instance preferences).
+        val headingRow = swThinkingEnabled.parent as? com.cx.cakepet.SettingsRippleRow
+        val labels = headingRow?.getChildAt(0) as? LinearLayout
+        val title = labels?.getChildAt(0) as? TextView
+        if (labels != null && title != null) {
+            val titleIndex = labels.indexOfChild(title)
+            val originalParams = title.layoutParams
+            labels.removeView(title)
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            header.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+            val preset = RoleStore.descriptorForInstance(this, roleId)?.source == RoleSource.ASSETS
+            header.addView(TextView(this).apply {
+                text = if (preset) "查看碎碎念 ›" else "编辑碎碎念 ›"
+                textSize = 8.5f
+                setTextColor(getColor(R.color.cp_note))
+                setPadding((5 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    val pack = RoleStore.descriptorForInstance(this@ThinkingSettingsActivity, roleId)
+                    if (pack == null) {
+                        androidx.appcompat.app.AlertDialog.Builder(this@ThinkingSettingsActivity)
+                            .setMessage("素材包不存在，请先恢复素材包。")
+                            .setPositiveButton("知道了", null).show()
+                    } else {
+                        androidx.appcompat.app.AlertDialog.Builder(this@ThinkingSettingsActivity)
+                            .setTitle(if (preset) "查看素材包碎碎念" else "编辑共享素材")
+                            .setMessage(if (preset)
+                                "预装素材包不可直接编辑。可在素材包管理页复制后编辑其碎碎念文本。"
+                                else "即将进入素材包「${pack.displayName}」的碎碎念文本页。修改共享素材将影响使用此素材包的所有角色，不会改变各实例的显示设置。")
+                            .setNegativeButton("取消", null)
+                            .setPositiveButton(if (preset) "素材包管理" else "继续编辑") { _, _ ->
+                                startActivity(if (preset)
+                                    Intent(this@ThinkingSettingsActivity, RoleManageActivity::class.java)
+                                    else Intent(this@ThinkingSettingsActivity, RolePackEditorActivity::class.java).apply {
+                                        putExtra("role_id", pack.id)
+                                        putExtra("initial_thinking_resources", true)
+                                    })
+                            }.show()
+                    }
+                }
+            })
+            labels.addView(header, titleIndex, originalParams)
+        }
         // ===== 滑块：业务范围来自 PetBounds（阈值页可改上下界），滑块内部 0..100 归一化 =====
         refreshUI()
 
