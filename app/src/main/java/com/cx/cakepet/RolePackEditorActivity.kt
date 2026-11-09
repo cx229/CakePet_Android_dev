@@ -1679,32 +1679,19 @@ open class RolePackEditorActivity : AppCompatActivity() {
             // Keep nextMode and loop settings in a single playback dialog.
             // Infinite looping hides this field but must not erase its stored value.
             var nextModeId = current.optString("nextMode").takeUnless { it == "null" }.orEmpty()
-            val nextRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, px(6), 0, px(4))
-            }
-            nextRow.addView(text("后续动画", 14f), LinearLayout.LayoutParams(0, -2, 1f))
-            val nextChoice = text("", 13f).apply {
-                setBackgroundResource(R.drawable.bg_input)
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                setSingleLine(true)
-                ellipsize = TextUtils.TruncateAt.END
-                setPadding(px(9), 0, px(9), 0)
-            }
-            fun redrawNext() {
-                nextChoice.text = if (nextModeId.isEmpty()) "自动（由系统决定）  ▾" else "$nextModeId  ▾"
-            }
-            redrawNext()
-            nextChoice.setOnClickListener {
+            lateinit var nextRowInfo: TextView
+            val nextRow = detailSectionHeader("后续动画",
+                if (nextModeId.isEmpty()) "自动（由系统决定）"
+                else modeChainText(nextModeId, root.getJSONObject("modes"))) {
                 chooseModes(single = true,
                     initial = listOfNotNull(nextModeId.takeIf { it.isNotEmpty() }),
                     headerDescription = "当前动画 · $key") { selected ->
                     nextModeId = selected.firstOrNull().orEmpty()
-                    redrawNext()
+                    nextRowInfo.text = (if (nextModeId.isEmpty()) "自动（由系统决定）"
+                        else modeChainText(nextModeId, root.getJSONObject("modes"))) + "  ›"
                 }
             }
-            nextRow.addView(nextChoice, LinearLayout.LayoutParams(0, px(44), 1f))
+            nextRowInfo = nextRow.getChildAt(1) as TextView
             val nextDivider = View(this).apply {
                 setBackgroundColor(getColor(R.color.cp_divider))
             }
