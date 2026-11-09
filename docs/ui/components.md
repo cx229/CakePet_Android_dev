@@ -28,7 +28,7 @@
 | 类型 | 实现入口 | 不可抹掉的差异 |
 |---|---|---|
 | 首页角色 | `res/layout/item_role_card.xml`、`MainActivity.kt: HomeAdapter` | 召唤/归位/召回、配置入口、状态、角色预览 |
-| 素材包目录 | `res/layout/item_role_catalog.xml`、`RoleManageActivity.kt: RoleAdapter` | 作者、实例数量、素材级操作 |
+| 素材包目录 | `res/layout/item_role_catalog.xml`、`RoleManageActivity.kt: CatalogAdapter` | 作者、实例数量、素材级操作 |
 | 已加入角色管理 | `res/layout/item_role_home.xml`、`RoleHomeManageActivity.kt` | 显示名、简称、排序、管理菜单 |
 | 功能资源 | `RolePackEditorActivity.kt: functionItem()/functionTree()` | 支持功能说明、示例帧、绑定动画与缺失提示；文件夹同方法生成 |
 | 动画列表 | `RolePackEditorActivity.kt: modes()` | 动画组、帧数、循环/后续链、缩略图 |
