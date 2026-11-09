@@ -1758,7 +1758,11 @@ open class RolePackEditorActivity : AppCompatActivity() {
             formFieldOf(max).layoutParams =
                 LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = px(5) }
             timedFields.addView(timerRow)
-            val finish = Switch(this).apply {
+            val finish = androidx.appcompat.widget.SwitchCompat(this).apply {
+                val switchColors = androidx.core.content.ContextCompat.getColorStateList(
+                    this@RolePackEditorActivity, R.color.switch_black_selector)
+                thumbTintList = switchColors
+                trackTintList = switchColors
                 text = "结束前播完当前一轮"
                 isChecked = current.optBoolean("finishCycle", true)
             }
@@ -2285,7 +2289,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
         editor("动画属性") { box ->
             val name = entry(box, "动画名称", key)
             (name.parent as? LinearLayout)?.let { field ->
-                (field.getChildAt(0) as? TextView)?.setTextColor(android.graphics.Color.BLACK)
+                (field.getChildAt(0) as? TextView)?.setTextColor(getColor(R.color.cp_title))
             }
             val playbackModes = listOf("播放一次", "定时循环", "无限循环")
             val previous = mode.optJSONObject("duration")
@@ -2302,7 +2306,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 setPadding(0, px(12), 0, px(8))
             }
             playbackRow.addView(text("播放循环", 14f).apply {
-                setTextColor(android.graphics.Color.BLACK)
+                setTextColor(getColor(R.color.cp_title))
                 setPadding(0, 0, px(12), 0)
             })
             playbackRow.addView(playback, LinearLayout.LayoutParams(0, px(48), 1f))
@@ -2323,7 +2327,11 @@ open class RolePackEditorActivity : AppCompatActivity() {
             (max.parent as? View)?.layoutParams =
                 LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = px(5) }
             timedFields.addView(rangeRow)
-            val finish = Switch(this).apply {
+            val finish = androidx.appcompat.widget.SwitchCompat(this).apply {
+                val switchColors = androidx.core.content.ContextCompat.getColorStateList(
+                    this@RolePackEditorActivity, R.color.switch_black_selector)
+                thumbTintList = switchColors
+                trackTintList = switchColors
                 text = "结束前播完当前一轮"
                 isChecked = mode.optBoolean("finishCycle", true)
             }
