@@ -35,4 +35,9 @@
     <color name="switch_off_night">#9AA0A6</color>
     <!-- 选项入口右侧箭头（chevron）夜间颜色：浅色，在暗底上可见 -->
     <color name="icon_chevron">#8A8A90</color>
+    <!-- Dark preview only changes the surrounding canvas and diagnostics, never artwork. -->
+    <color name="cp_preview_canvas">#383B41</color>
+    <color name="cp_preview_guide">#B1B9C8</color>
+    <color name="cp_preview_bounds">#5AC0FF</color>
+    <color name="cp_preview_anchor">#FF7B70</color>
 </resources>
