@@ -1003,17 +1003,27 @@ open class RolePackEditorActivity : AppCompatActivity() {
         return frame to body
     }
 
-    /** Shared visual surface for hierarchical resource/selection rows.
-     *  Only styling is shared; each picker keeps its own selection behavior.
+    /**
+     * One resource-card surface for every editor context.
+     * Folders are always white with a quiet gray outline.
+     * Resource leaves have no outline: white on editor pages, gray on white dialogs.
+     * This intentionally does not restyle independent settings/form modules.
      */
-    private fun selectionSurface(view: View, isFolder: Boolean = false) {
+    private fun resourceCardSurface(view: View, isFolder: Boolean, inDialog: Boolean) {
         view.background = android.graphics.drawable.GradientDrawable().apply {
             cornerRadius = px(9).toFloat()
-            setColor(getColor(if (isFolder) R.color.cp_card_bg else R.color.cp_bg))
-            setStroke(px(1).coerceAtLeast(1), getColor(R.color.cp_divider))
+            setColor(getColor(if (isFolder || !inDialog) R.color.cp_card_bg else R.color.cp_bg))
+            if (isFolder) setStroke(px(1).coerceAtLeast(1), getColor(R.color.cp_divider))
         }
         rippleCard(view)
     }
+
+    private fun pageResourceSurface(view: View, isFolder: Boolean = false) =
+        resourceCardSurface(view, isFolder, inDialog = false)
+
+    /** Shared picker style; independent selection behavior stays unchanged. */
+    private fun selectionSurface(view: View, isFolder: Boolean = false) =
+        resourceCardSurface(view, isFolder, inDialog = true)
 
     private fun selectionRowParams(depth: Int = 0): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(-1, -2).apply {
@@ -1341,8 +1351,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
             val header = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setBackgroundResource(R.drawable.card_bg)
-                rippleCard(this)
+                pageResourceSurface(this, isFolder = true)
                 setPadding(px(12), px(6), px(12), px(6))
             }
             val heading = text("", 16f)
@@ -1365,8 +1374,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setBackgroundResource(R.drawable.card_bg)
-                    rippleCard(this)
+                    pageResourceSurface(this)
                     setPadding(px(8), px(5), px(4), px(5))
                 }
                 val content = LinearLayout(this).apply {
@@ -3115,12 +3123,12 @@ open class RolePackEditorActivity : AppCompatActivity() {
 
     private fun functionItem(node: LinearLayout, title: String, subtitle: String,
                              level: Int, immediate: Boolean = false, description: String = "",
-                             examplePath: List<String>? = null, click: () -> Unit): LinearLayout {
+                             examplePath: List<String>? = null, isFolder: Boolean = false,
+                             click: () -> Unit): LinearLayout {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundResource(R.drawable.card_bg)
-            rippleCard(this)
+            resourceCardSurface(this, isFolder = isFolder, inDialog = linkedMode)
             setPadding(if (examplePath != null) px(6) else px(12), px(5),
                 px(8), px(5))
             isClickable = true
@@ -3279,7 +3287,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
                     }
                     folderCard = functionItem(parent, "",
                         if (undefined) "未定义文件夹 · 原配置已保留" else functionFolderDescription(currentPath),
-                        path.size, immediate = true) {
+                        path.size, immediate = true, isFolder = true) {
                         if (!openedFunctionFolders.add(fullKey)) openedFunctionFolders.remove(fullKey)
                         refreshFolder()
                     }
@@ -3387,7 +3395,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
         val wrapper = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         functionItem(panel,
             (if (open) "▾ 📂  " else "▸ 📁  ") + "未定义 (${entries.size})",
-            "", 0, immediate = true) {
+            "", 0, immediate = true, isFolder = true) {
             if (!openedFunctionFolders.add("undefined")) openedFunctionFolders.remove("undefined")
             functions()
         }.also { card ->
@@ -3984,7 +3992,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    selectionSurface(this, isFolder = file.isDirectory)
+                    pageResourceSurface(this, isFolder = file.isDirectory)
                     setPadding(px(8), px(4), px(4), px(4))
                 }
                 val main = LinearLayout(this).apply {
@@ -4151,8 +4159,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
             val folder = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setBackgroundResource(R.drawable.card_bg)
-                rippleCard(this)
+                resourceCardSurface(this, isFolder = true, inDialog = linkedPreview)
                 setPadding(px(12), px(6), px(12), px(6))
             }
             folder.addView(text((if (opened) "▾ 📂  " else "▸ 📁  ") +
@@ -4184,8 +4191,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setBackgroundResource(R.drawable.card_bg)
-                    rippleCard(this)
+                    resourceCardSurface(this, isFolder = false, inDialog = linkedPreview)
                     setPadding(px(12), px(4), px(6), px(4))
                 }
                 val textContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
