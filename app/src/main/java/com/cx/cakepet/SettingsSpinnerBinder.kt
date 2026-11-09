@@ -23,11 +23,14 @@ object SettingsSpinnerBinder {
                     gravity = Gravity.END or Gravity.CENTER_VERTICAL
                     textAlignment = View.TEXT_ALIGNMENT_GRAVITY
                     setTextColor(ctx.getColor(R.color.cp_title))
+                    setBackgroundColor(ctx.getColor(R.color.cp_bg))
+                    setPadding(dp(8), 0, dp(8), 0)
                 }
 
             override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
                 LinearLayout(ctx).apply {
                     orientation = LinearLayout.VERTICAL
+                    setBackgroundColor(android.graphics.Color.WHITE)
                     if (position > 0) addView(View(ctx).apply {
                         setBackgroundColor(ctx.getColor(R.color.cp_subtle))
                     }, LinearLayout.LayoutParams(-1, dp(1)).apply {
@@ -36,7 +39,7 @@ object SettingsSpinnerBinder {
                     })
                     addView(TextView(ctx).apply {
                         text = entries[position]
-                        textSize = 11f
+                        textSize = 13f
                         gravity = Gravity.CENTER_VERTICAL
                         setTextColor(ctx.getColor(R.color.cp_title))
                         setPadding(dp(16), 0, dp(16), 0)
@@ -44,6 +47,7 @@ object SettingsSpinnerBinder {
                 }
         }
         spinner.minimumHeight = dp(44)
+        spinner.setPopupBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
         if (entries.isNotEmpty()) spinner.setSelection(selected.coerceIn(0, entries.lastIndex))
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, position: Int, id: Long) {
