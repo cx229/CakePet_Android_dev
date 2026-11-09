@@ -310,6 +310,28 @@ open class RolePackEditorActivity : AppCompatActivity() {
     private fun modeChainText(start: String, modes: JSONObject): String =
         "[" + modeChain(start, modes).joinToString(" > ") + "]"
 
+    /** Read-only picker chain: keep markers grey, broken existing modes red. */
+    private fun pickerChain(start: String): TextView {
+        val modes = root.getJSONObject("modes")
+        val rich = SpannableStringBuilder()
+        modeChain(start, modes).forEachIndexed { index, id ->
+            if (index > 0) rich.append(" → ")
+            val from = rich.length
+            val marker = id == "◎" || id == "∞"
+            rich.append(id)
+            if (!marker && !playableMode(id))
+                rich.append("（异常）")
+            rich.setSpan(android.text.style.ForegroundColorSpan(
+                getColor(if (marker) R.color.cp_note
+                    else if (playableMode(id)) R.color.cp_sub else R.color.cp_danger)),
+                from, rich.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return text("", 10f).apply {
+            setText(rich, TextView.BufferType.SPANNABLE)
+            setPadding(0, 0, 0, 0)
+        }
+    }
+
     /**
      * Keep the existing chain syntax, and make each actual Mode name a link.
      * The infinity/loop symbols, arrows, brackets and labels remain plain text.
@@ -3545,7 +3567,6 @@ open class RolePackEditorActivity : AppCompatActivity() {
                             setPadding(px(10), 0, px(5), 0)
                         }
                         val check = CheckBox(this).apply {
-                            text = name
                             isChecked = name in selected
                             setOnCheckedChangeListener { _, checked ->
                                 if (single) selected.clear()
@@ -3553,7 +3574,17 @@ open class RolePackEditorActivity : AppCompatActivity() {
                                 redraw()
                             }
                         }
-                        row.addView(check, LinearLayout.LayoutParams(-1, px(46)))
+                        row.addView(check, LinearLayout.LayoutParams(px(45), px(58)))
+                        val labels = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            setPadding(0, px(4), px(6), px(4))
+                            addView(text(name, 13f).apply {
+                                setPadding(0, 0, 0, px(2))
+                            })
+                            addView(pickerChain(name))
+                        }
+                        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
                         listing.addView(row, selectionRowParams(1))
                         rippleClick(row) { check.isChecked = !check.isChecked }
                     }
