@@ -326,6 +326,7 @@ class ImageModeManager(
         private var timeElapsed = 0L
         private var timeTarget = sampleTimeTarget()
         private var pendingFinish = false
+        private var completedCycles = 0
         var isEnded: Boolean = false
             private set
 
@@ -339,6 +340,9 @@ class ImageModeManager(
         val debugDurationMinMs: Long? get() = def.durationMin
         val debugDurationMaxMs: Long? get() = def.durationMax
         val debugWaitingForCycle: Boolean get() = pendingFinish
+        val debugCompletedCycles: Int get() = completedCycles
+        val debugTimeElapsedMs: Long get() = timeElapsed
+        val debugTimeTargetMs: Long get() = timeTarget
         val isInfiniteLoop: Boolean get() = def.loopMode == "infinite"
         val currentDx: Int get() = def.frames[frameIndex].dx
         val currentDy: Int get() = def.frames[frameIndex].dy
@@ -366,6 +370,7 @@ class ImageModeManager(
             elapsed = 0L
             frameDelay = def.frames[0].delay().coerceAtLeast(1L)
             if (restartTimer) {
+                completedCycles = 0
                 timeElapsed = 0L
                 timeTarget = sampleTimeTarget()
                 pendingFinish = false
@@ -425,6 +430,7 @@ class ImageModeManager(
                         changed = true
                     } else if (def.loop && !pendingFinish) {
                         // Looping frames retain their sampled timer; no mode switch.
+                        completedCycles++
                         resetPlayback(restartTimer = false)
                         changed = true
                     } else {
