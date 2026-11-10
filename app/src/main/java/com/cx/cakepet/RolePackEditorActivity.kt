@@ -675,6 +675,8 @@ open class RolePackEditorActivity : AppCompatActivity() {
         stopAnimation()
         detailPreviewTasks.values.toList().forEach { handler.removeCallbacks(it) }
         detailPreviewTasks.clear()
+        detailPreviewReloaders.clear()
+        pagePreview = null
         homePreviewPlayer?.stop()
         homePreviewPlayer = null
         if (::draft.isInitialized) draft.deleteRecursively()
@@ -868,6 +870,14 @@ open class RolePackEditorActivity : AppCompatActivity() {
         RolePackEditing.commit(this, id, draft, candidate)
         root = candidate
         draft = RolePackEditing.draft(this, id)
+        // The saved file is now authoritative. Recreate the player's parsed
+        // clip and bitmap cache in every visible preview, not just the labels.
+        pagePreview?.takeIf { screen == "mode" && it.isAttachedToWindow }?.let {
+            animate(it, modeId)
+        }
+        detailPreviewReloaders.toMap().forEach { (view, reload) ->
+            if (view.isAttachedToWindow) reload() else detailPreviewReloaders.remove(view)
+        }
         // JSON has changed, but existing View text and lists are not live bindings.
         // Refresh underlying cards without navigating or collapsing folders, then
         // refresh any visible read-only function details from the current root.
@@ -1861,6 +1871,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
             contentDescription = "动画实时预览，右上角重新播放"
         }
         panel.addView(preview, LinearLayout.LayoutParams(-1, -2))
+        pagePreview = preview
         animate(preview, key)
         // Mode-level controls remain visible, but don't dominate the frame editor.
         val mode = root.getJSONObject("modes").getJSONObject(key)
@@ -2231,20 +2242,33 @@ open class RolePackEditorActivity : AppCompatActivity() {
         modePageRecycler = recycler
     }
     private val detailPreviewTasks = mutableMapOf<RoleAnimationPreview, Runnable>()
+    private val detailPreviewReloaders = mutableMapOf<RoleAnimationPreview, () -> Unit>()
+    private var pagePreview: RoleAnimationPreview? = null
 
-    /** Render actual ModeClip state; never infer frame timings from the UI clock. */
+    /** The two progress bars are driven by the same sampled ModeClip state. */
     private fun renderModePreview(view: RoleAnimationPreview, manager: ImageModeManager,
-                                  clip: ImageModeManager.ModeClip, start: String,
-                                  status: String) {
-        val duration = if (clip.debugLoopKind == "timed") {
+                                  clip: ImageModeManager.ModeClip, start: String, status: String,
+                                  travelX: Int, travelY: Int, fixedAnchor: Pair<Int, Int>) {
+        val timed = clip.debugLoopKind == "timed"
+        val duration = if (timed) {
             val min = clip.debugDurationMinMs ?: 3000L
             val max = clip.debugDurationMaxMs ?: min
-            "（$min–${max}ms）"
+            " · $min–${max}ms"
         } else ""
+        val complete = status == "已结束" || status == "等待调度"
+        // Timed: the sampled target is known. Once reached, hold full while
+        // waiting to finish the current frame cycle. No speculative frame delays.
+        val main = if (timed) {
+            val target = clip.debugTimeTargetMs
+            if (complete || clip.debugWaitingForCycle) 1f
+            else if (target <= 0 || target == Long.MAX_VALUE) 0f
+            else (clip.debugTimeElapsedMs.toFloat() / target).coerceIn(0f, 1f)
+        } else if (complete || clip.debugCompletedCycles > 0) 1f else 0f
+        val indeterminate = !timed && !complete && clip.debugCompletedCycles == 0
         view.update(
             clip.currentBitmap(),
             manager.previewContentBounds(clip.currentResName, clip.currentVerticalAlign, clip.currentTransform),
-            clip.currentAnchor(), clip.currentDx, clip.currentDy,
+            clip.currentAnchor(), travelX, travelY,
             manager.currentPack.anchorRes,
             RoleAnimationPreview.State(
                 chain = modeChain(start, root.getJSONObject("modes")),
@@ -2256,25 +2280,35 @@ open class RolePackEditorActivity : AppCompatActivity() {
                         clip.debugFrameDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f),
                 loopKind = clip.debugLoopKind,
                 duration = duration,
-                status = status
-            )
+                status = status,
+                mainFraction = main,
+                mainIndeterminate = indeterminate
+            ),
+            fixedAnchor
         )
     }
 
-    /** Page preview uses the same renderer as dialogs but follows the page lifecycle. */
+    /** A frame's dx/dy is a one-time impulse when that frame is entered. */
     private fun animate(view: RoleAnimationPreview, key: String) {
         stopAnimation()
         val manager = ImageModeManager(this, loadPackMeta(this, id, RoleSource.FILES))
         val clip = manager.createClip(key) ?: return
+        var travelX = clip.currentDx
+        var travelY = clip.currentDy
+        val originAnchor = clip.currentAnchor()
         val tick = object : Runnable {
             override fun run() {
                 if (screen != "mode" || modeId != key || !view.isAttachedToWindow) return
                 val step = clip.advance(50, allowModeSwitch = true)
+                if (step.changed) {
+                    travelX += clip.currentDx
+                    travelY += clip.currentDy
+                }
                 renderModePreview(view, manager, clip, key, when {
                     step.ended -> "已结束"
                     step.timerRequested -> "等待调度"
                     else -> "播放中"
-                })
+                }, travelX, travelY, originAnchor)
                 if (!step.ended && !step.timerRequested) handler.postDelayed(this, 50)
             }
         }
@@ -2282,31 +2316,49 @@ open class RolePackEditorActivity : AppCompatActivity() {
         view.post { if (screen == "mode" && modeId == key) tick.run() }
     }
 
-    /** Each dialog owns its playback clock, replay control, and cancellation. */
+    /** Editor dialogs and template read-only dialogs share the same renderer. */
     private fun addDialogPreview(parent: LinearLayout, key: String) {
         val preview = RoleAnimationPreview(this).apply {
             contentDescription = "动画实时预览，右上角重新播放"
         }
         parent.addView(preview, LinearLayout.LayoutParams(-1, -2))
-        val source = if (linkedReadOnly) RoleSource.ASSETS else RoleSource.FILES
-        val manager = ImageModeManager(this, loadPackMeta(this, id, source))
+        val source = if (linkedMode) linkedPack.source else RoleSource.FILES
+        // In particular, bundled 白酥 uses assets/白酥, NOT assets/baiasu.
+        val base = if (linkedMode) linkedPack.rootPath else id
         var tick: Runnable? = null
         fun cancel() {
             tick?.let { handler.removeCallbacks(it) }
+            tick = null
             detailPreviewTasks.remove(preview)
         }
         fun replay() {
             cancel()
-            val clip = manager.createClip(key) ?: return
+            // Always reload on replay: saves may have replaced modes.jsonc and images.
+            val manager = ImageModeManager(this, loadPackMeta(this, base, source))
+            val clip = manager.createClip(key)
+            if (clip == null) {
+                preview.update(null, android.graphics.RectF(), 0 to 0, 0, 0,
+                    manager.currentPack.anchorRes,
+                    RoleAnimationPreview.State(chain = modeChain(key, root.getJSONObject("modes")),
+                        current = key, status = "无法播放"))
+                return
+            }
+            var travelX = clip.currentDx
+            var travelY = clip.currentDy
+            val originAnchor = clip.currentAnchor()
             val runner = object : Runnable {
                 override fun run() {
                     if (!preview.isAttachedToWindow) return
                     val step = clip.advance(50, allowModeSwitch = true)
+                    if (step.changed) {
+                        travelX += clip.currentDx
+                        travelY += clip.currentDy
+                    }
                     renderModePreview(preview, manager, clip, key, when {
                         step.ended -> "已结束"
                         step.timerRequested -> "等待调度"
                         else -> "播放中"
-                    })
+                    }, travelX, travelY, originAnchor)
                     if (!step.ended && !step.timerRequested) handler.postDelayed(this, 50)
                 }
             }
@@ -2314,10 +2366,14 @@ open class RolePackEditorActivity : AppCompatActivity() {
             detailPreviewTasks[preview] = runner
             preview.post { if (preview.isAttachedToWindow) runner.run() }
         }
+        detailPreviewReloaders[preview] = { replay() }
         preview.onReplay = { replay() }
         preview.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) { replay() }
-            override fun onViewDetachedFromWindow(v: View) { cancel() }
+            override fun onViewDetachedFromWindow(v: View) {
+                cancel()
+                detailPreviewReloaders.remove(preview)
+            }
         })
     }
     private fun stopAnimation() {
