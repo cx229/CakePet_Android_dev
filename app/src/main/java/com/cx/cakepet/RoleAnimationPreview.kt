@@ -20,7 +20,9 @@ class RoleAnimationPreview(context: Context) : View(context) {
         val frameFraction: Float = 0f,
         val loopKind: String = "off",
         val duration: String = "",
-        val status: String = "播放中"
+        val status: String = "播放中",
+        val mainFraction: Float = 0f,
+        val mainIndeterminate: Boolean = false
     )
     var showGuides = true
     var onReplay: (() -> Unit)? = null
@@ -31,6 +33,9 @@ class RoleAnimationPreview(context: Context) : View(context) {
     private var dx = 0
     private var dy = 0
     private var resolution = 128
+    private var originAnchor = 0 to 0
+    private var travelX = 0
+    private var travelY = 0
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val density get() = resources.displayMetrics.density
     private val scaled get() = resources.displayMetrics.scaledDensity
@@ -49,30 +54,38 @@ class RoleAnimationPreview(context: Context) : View(context) {
         return lines
     }
     fun update(bitmap: Bitmap?, contentBounds: RectF, at: Pair<Int, Int>,
-               offsetX: Int, offsetY: Int, canvasResolution: Int, playback: State) {
+               offsetX: Int, offsetY: Int, canvasResolution: Int, playback: State,
+               fixedAnchor: Pair<Int, Int> = at) {
         image = bitmap
         bounds = RectF(contentBounds)
         anchor = at
         dx = offsetX
         dy = offsetY
         resolution = canvasResolution.coerceAtLeast(1)
+        originAnchor = fixedAnchor
+        travelX = offsetX
+        travelY = offsetY
         state = playback
         requestLayout()
         invalidate()
     }
     override fun onMeasure(wSpec: Int, hSpec: Int) {
         val w = MeasureSpec.getSize(wSpec).coerceAtLeast(1)
-        setMeasuredDimension(w, w / 2 + dp(40f + chainLines(w) * 18f).toInt())
+        setMeasuredDimension(w, w / 2 + dp(46f + chainLines(w) * 18f).toInt())
     }
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(resources.getColor(R.color.cp_preview_canvas, context.theme))
         val artHeight = width / 2f
         val side = (min(width.toFloat(), artHeight) - dp(50f)).coerceAtLeast(1f)
-        val left = (width - side) / 2f
-        val top = (artHeight - side) / 2f
+        val left = (width - side) / 2f + travelX * (side / resolution)
+        val top = (artHeight - side) / 2f + travelY * (side / resolution)
         val ratio = side / resolution
-        val bitmapRect = RectF(left + dx * ratio, top + dy * ratio,
-            left + (resolution + dx) * ratio, top + (resolution + dy) * ratio)
+        // Frame impulses move the entire canvas. Anchor changes keep a stable
+        // reference point while shifting the picture within that moving canvas.
+        val shiftX = (originAnchor.first - anchor.first) * ratio
+        val shiftY = (originAnchor.second - anchor.second) * ratio
+        val bitmapRect = RectF(left + shiftX, top + shiftY,
+            left + side + shiftX, top + side + shiftY)
         paint.style = Paint.Style.FILL
         paint.color = Color.WHITE
         image?.let { canvas.drawBitmap(it, null, bitmapRect, paint) }
@@ -84,11 +97,11 @@ class RoleAnimationPreview(context: Context) : View(context) {
             canvas.drawRect(left, top, left + side, top + side, paint)
             paint.pathEffect = null
             paint.color = resources.getColor(R.color.cp_preview_bounds, context.theme)
-            canvas.drawRect(left + (bounds.left + dx) * ratio,
-                top + (bounds.top + dy) * ratio, left + (bounds.right + dx) * ratio,
-                top + (bounds.bottom + dy) * ratio, paint)
-            val ax = left + (anchor.first + dx) * ratio
-            val ay = top + (anchor.second + dy) * ratio
+            canvas.drawRect(left + bounds.left * ratio + shiftX,
+                top + bounds.top * ratio + shiftY, left + bounds.right * ratio + shiftX,
+                top + bounds.bottom * ratio + shiftY, paint)
+            val ax = left + originAnchor.first * ratio
+            val ay = top + originAnchor.second * ratio
             paint.color = resources.getColor(R.color.cp_preview_anchor, context.theme)
             canvas.drawCircle(ax, ay, dp(3f), paint)
             canvas.drawLine(ax - dp(9f), ay, ax + dp(9f), ay, paint)
@@ -98,7 +111,7 @@ class RoleAnimationPreview(context: Context) : View(context) {
         paint.color = resources.getColor(R.color.cp_preview_hud_text, context.theme)
         paint.textSize = 9f * scaled
         listOf("画布：灰色虚线", "内容：蓝色边框", "锚点：红色十字",
-            "锚点：(${anchor.first}, ${anchor.second})", "位移：($dx, $dy)")
+            "锚点：(${anchor.first}, ${anchor.second})", "位移：($travelX, $travelY)")
             .forEachIndexed { i, label -> canvas.drawText(label, dp(8f), dp(13f + i * 13f), paint) }
 
         paint.color = resources.getColor(R.color.cp_preview_hud_bg, context.theme)
@@ -144,24 +157,48 @@ class RoleAnimationPreview(context: Context) : View(context) {
             "infinite" -> "无限循环"
             else -> "播放一次"
         }
-        val info = "${state.current} · $kind"
-        val allowedWidth = width - dp(93f)
-        val infoText = android.text.TextUtils.ellipsize(info,
-            android.text.TextPaint(paint), allowedWidth,
+        val frameText = "${state.current} · 第${state.frame + 1}/${state.frameCount}帧"
+        val rightText = kind
+        val rightW = paint.measureText(rightText)
+        val rightX = width - dp(12f) - rightW
+        val frameAllowed = (rightX - dp(24f)).coerceAtLeast(dp(25f))
+        val displayFrame = android.text.TextUtils.ellipsize(frameText,
+            android.text.TextPaint(paint), frameAllowed,
             android.text.TextUtils.TruncateAt.END).toString()
-        canvas.drawText(infoText, dp(12f), infoY, paint)
-        val frameText = "${state.frame + 1}/${state.frameCount}帧"
-        canvas.drawText(frameText, width - dp(12f) - paint.measureText(frameText), infoY, paint)
+        canvas.drawText(displayFrame, dp(12f), infoY, paint)
+        canvas.drawText(rightText, rightX, infoY, paint)
+
         val barY = infoY + dp(7f)
         val x0 = dp(12f)
         val x1 = width - dp(12f)
+        val barW = x1 - x0
+        val mainEnd = if (state.mainIndeterminate) 0f else
+            barW * state.mainFraction.coerceIn(0f, 1f)
         paint.color = resources.getColor(R.color.cp_preview_guide, context.theme)
-        canvas.drawRoundRect(x0, barY, x1, barY + dp(3f), dp(2f), dp(2f), paint)
-        val fraction = ((state.frame + state.frameFraction.coerceIn(0f, 1f)) /
-            state.frameCount.coerceAtLeast(1)).coerceIn(0f, 1f)
+        canvas.drawRoundRect(x0, barY, x1, barY + dp(5f), dp(2f), dp(2f), paint)
         paint.color = resources.getColor(R.color.cp_preview_bounds, context.theme)
-        canvas.drawRoundRect(x0, barY, x0 + (x1 - x0) * fraction,
-            barY + dp(3f), dp(2f), dp(2f), paint)
+        if (state.mainIndeterminate) {
+            // A non-time-based single play has no known total duration.
+            // An animated segment means 'in progress', not an invented percentage.
+            val x = ((state.frame + state.frameFraction.coerceIn(0f, 1f)) /
+                state.frameCount.coerceAtLeast(1)).coerceIn(0f, 1f)
+            val segment = barW * 0.22f
+            val center = x0 + segment / 2 + x * (barW - segment)
+            canvas.drawRoundRect(center - segment / 2, barY, center + segment / 2,
+                barY + dp(5f), dp(2f), dp(2f), paint)
+        } else if (mainEnd > 0f) {
+            canvas.drawRoundRect(x0, barY, x0 + mainEnd,
+                barY + dp(5f), dp(2f), dp(2f), paint)
+        }
+        // Second bar always follows the current frame sequence, never the total chain.
+        val secondaryY = barY + dp(8f)
+        paint.color = resources.getColor(R.color.cp_preview_guide, context.theme)
+        canvas.drawRoundRect(x0, secondaryY, x1, secondaryY + dp(3f), dp(2f), dp(2f), paint)
+        val frameProgress = ((state.frame + state.frameFraction.coerceIn(0f, 1f)) /
+            state.frameCount.coerceAtLeast(1)).coerceIn(0f, 1f)
+        paint.color = Color.rgb(196, 151, 75)
+        canvas.drawRoundRect(x0, secondaryY, x0 + barW * frameProgress,
+            secondaryY + dp(3f), dp(2f), dp(2f), paint)
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val cy = width / 2f + dp(14f)
