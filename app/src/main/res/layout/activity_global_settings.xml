@@ -142,6 +142,24 @@
                 android:clickable="false"
                 android:focusable="false"/>
         </com.cx.cakepet.SettingsRippleRow>
+        <com.cx.cakepet.SettingsRippleRow android:id="@+id/row_single_cross_role_thinking"
+            style="@style/SettingsSwitchRow"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="0dp" android:layout_marginBottom="0dp"
+            android:paddingStart="20dp" android:paddingEnd="20dp"
+            android:paddingTop="8dp" android:paddingBottom="8dp"
+            android:clickable="true" android:focusable="true">
+            <LinearLayout style="@style/SettingsSwitchTexts">
+                <TextView style="@style/SettingsOptionTitle" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:text="仅单个碎碎念"/>
+                <TextView style="@style/SettingsOptionNote" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:text="不同角色碎碎念时，新文字会顶替之前的文字，避免重叠"/>
+            </LinearLayout>
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/sw_single_cross_role_thinking"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:minWidth="0dp" android:minHeight="0dp"
+                android:thumbTint="@color/switch_black_selector" android:trackTint="@color/switch_black_selector"/>
+        </com.cx.cakepet.SettingsRippleRow>
     </LinearLayout>
 </LinearLayout>
                 <LinearLayout  android:layout_width="match_parent"

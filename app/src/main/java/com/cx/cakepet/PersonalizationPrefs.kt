@@ -9,6 +9,15 @@ object PersonalizationPrefs {
     private const val PREVIEW_SOURCE = "preview_source"
     private const val PAT = "preview_pat"
     private const val PRESENCE = "home_preview_mode"
+    private const val SINGLE_CROSS_ROLE_THINKING = "single_cross_role_thinking"
+
+    fun singleCrossRoleThinking(context: Context): Boolean =
+        prefs(context).getBoolean(SINGLE_CROSS_ROLE_THINKING, false)
+
+    fun setSingleCrossRoleThinking(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(SINGLE_CROSS_ROLE_THINKING, enabled).apply()
+        PetService.instance?.onSingleCrossRoleThinkingChanged(enabled)
+    }
 
     const val BOTTOM_CENTER = "bottom_center"
     const val RANDOM = "random"

@@ -144,6 +144,13 @@ class GlobalSettingsActivity : AppCompatActivity() {
         val nextRow = findViewById<View>(R.id.row_next)
         when (page) {
             PAGE_SETTINGS -> {
+                findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.sw_single_cross_role_thinking).apply {
+                    isChecked = PersonalizationPrefs.singleCrossRoleThinking(this@GlobalSettingsActivity)
+                    setOnCheckedChangeListener { _, checked ->
+                        PersonalizationPrefs.setSingleCrossRoleThinking(this@GlobalSettingsActivity, checked)
+                    }
+                    findViewById<View>(R.id.row_single_cross_role_thinking).setOnClickListener { isChecked = !isChecked }
+                }
                 val watermarkLevelRow = findViewById<View>(R.id.row_import_watermark_level)
                 val levelSpinner = findViewById<android.widget.Spinner>(R.id.sp_import_watermark_level)
                 val watermarkLevels = listOf(

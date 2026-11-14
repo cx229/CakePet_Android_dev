@@ -109,6 +109,44 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
     @Volatile
     private var visible = true
 
+    // Display-only suppression: never changes the phase ID, duration or timer.
+    private var crossRoleSuppressed = false
+    var onNewThinkingDisplayed: (() -> Unit)? = null
+    var lastThinkingDisplayAt: Long = 0L
+        private set
+
+    fun isThinkingDisplayed(): Boolean =
+        enabled && visible && !crossRoleSuppressed &&
+            textView.visibility == android.view.View.VISIBLE
+
+    fun suppressCrossRoleThinking() {
+        crossRoleSuppressed = true
+        textView.visibility = android.view.View.INVISIBLE
+    }
+
+    fun clearCrossRoleSuppression() {
+        if (!crossRoleSuppressed) return
+        crossRoleSuppressed = false
+        updateThinkingVisibility()
+    }
+
+    private fun beginThinkingDisplay() {
+        crossRoleSuppressed = !visible && PersonalizationPrefs.singleCrossRoleThinking(context)
+        if (!enabled || !visible || crossRoleSuppressed) return
+        lastThinkingDisplayAt = SystemClock.elapsedRealtimeNanos()
+        onNewThinkingDisplayed?.invoke()
+    }
+
+    private fun showThinkingWindow() {
+        textView.visibility = if (enabled && visible && !crossRoleSuppressed)
+            android.view.View.VISIBLE else android.view.View.INVISIBLE
+    }
+
+    private fun updateThinkingVisibility() {
+        if (previewActive || showingText || overrideActive || dissolving) showThinkingWindow()
+        else textView.visibility = android.view.View.INVISIBLE
+    }
+
     // 显形特效当前排程的 Runnable
     private var materializeRunnable: Runnable? = null
 
@@ -175,6 +213,7 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
         transitionSerial++
         stopLoop()
         val serial = transitionSerial
+        beginThinkingDisplay()
         materializeThenShow(content) {
             if (serial == transitionSerial) advanceWhenDue()
         }
@@ -315,7 +354,7 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
      */
     private fun dissolveThenClear(onCleared: () -> Unit) {
         val original = textView.text?.toString() ?: ""
-        if (original.isEmpty()) {
+        if (crossRoleSuppressed || original.isEmpty()) {
             onCleared()
             return
         }
@@ -327,7 +366,7 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
             return
         }
         dissolving = true
-        textView.visibility = android.view.View.VISIBLE
+        showThinkingWindow()
         val style = Random.nextInt(100)
         when {
             style < 20 -> dissolveStyleA(original, onCleared)   // A 渐进噪点溶解 20%
@@ -489,14 +528,14 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
         // 「文字闪现」关闭：跳过全部显形特效，文字直接出现
         if (!flashIn) {
             textView.text = target
-            textView.visibility = android.view.View.VISIBLE
+            showThinkingWindow()
             onShown()
             return
         }
         materializing = true
         dissolving = false        // 互斥：显形开始时若有退场在跑则中止
         cancelDissolve()
-        textView.visibility = android.view.View.VISIBLE
+        showThinkingWindow()
         val style = Random.nextInt(100)
         when {
             style < 20 -> materializeStyleA(target, onShown)  // A' 噪点凝聚 20%
@@ -649,6 +688,7 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
     fun setEnabled(on: Boolean) {
         if (on == enabled) return
         enabled = on
+        crossRoleSuppressed = false
         overrideActive = false
         previewActive = false
         transitionSerial++
@@ -783,8 +823,9 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
         pendingRunnable?.let { handler.removeCallbacks(it) }
         pendingRunnable = null
         previewActive = true
+        beginThinkingDisplay()
         textView.text = previewText()
-        textView.visibility = android.view.View.VISIBLE
+        showThinkingWindow()
     }
 
     /** 结束预览：清空调入的预览态并恢复轮播（先进入一轮空白，再继续正常文案）。 */
@@ -805,17 +846,14 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
 
     /** 跟随宠物整体可见性：隐藏时碎碎念也消失，显示时恢复（若启用） */
     fun setVisible(v: Boolean) {
+        val becomingVisible = v && !visible
         visible = v
-        if (!enabled) {
-            textView.visibility = android.view.View.INVISIBLE
-            return
+        if (becomingVisible && enabled && !crossRoleSuppressed &&
+            (previewActive || showingText || overrideActive || dissolving) &&
+            PersonalizationPrefs.singleCrossRoleThinking(context)) {
+            onNewThinkingDisplayed?.invoke()
         }
-        // 预览态优先保持可见：用户正在设置页看效果，不因可见性变化被打断
-        textView.visibility = if (v) {
-            if (previewActive || showingText || overrideActive) android.view.View.VISIBLE else android.view.View.INVISIBLE
-        } else {
-            android.view.View.INVISIBLE
-        }
+        updateThinkingVisibility()
     }
 
     fun destroy() {

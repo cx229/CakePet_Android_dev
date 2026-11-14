@@ -1010,6 +1010,11 @@ class PetService : Service() {
             height = WindowManager.LayoutParams.WRAP_CONTENT
         }
         val petMsg = TrayMsgManager(this, roleId)
+        petMsg.onNewThinkingDisplayed = {
+            if (PersonalizationPrefs.singleCrossRoleThinking(this)) {
+                pets.filter { it.roleId != roleId }.forEach { it.petMsg.suppressCrossRoleThinking() }
+            }
+        }
         view.onThinkingModeEntered = { config, texts -> petMsg.applyModeThinking(config, texts) }
         val (initialThinking, initialTexts) = view.currentThinkingConfiguration()
         petMsg.applyModeThinking(initialThinking, initialTexts)
@@ -1260,6 +1265,7 @@ class PetService : Service() {
             // 碎碎念：每个实例独立浮窗，可见性/样式跟随共享配置，但位置按序号错开。
             // 仅单个碎碎念（默认开）：开启时仅主实例(index 0)显示，其余实例隐藏；关闭则每个实例各自显示。
             val showForThis = thinkingEnabled && (index == 0 || !singleTrayMsg)
+            inst.petMsg.setVisible(showForThis && rolePetVisible(rt.roleId))
             inst.petMsg.setEnabled(showForThis)
             inst.petMsg.setOffsetY(c.thinkingOffset + index * TRAY_ROW_STEP)
             inst.petMsg.applyStyle(
@@ -3863,6 +3869,23 @@ class PetService : Service() {
         roleId?.let { engines[it]?.config?.getBlocking()?.thinkingEnabled } ?: thinkingEnabled
 
     /** 取指定角色（缺省主实例）的碎碎念浮窗，供各宠物独立显示其内容。 */
+    fun onSingleCrossRoleThinkingChanged(enabled: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post {
+                if (instance === this) onSingleCrossRoleThinkingChanged(PersonalizationPrefs.singleCrossRoleThinking(this))
+            }
+            return
+        }
+        if (!enabled) {
+            pets.forEach { it.petMsg.clearCrossRoleSuppression() }
+            return
+        }
+        // Enabling the option immediately keeps the most recently displayed role.
+        val latest = pets.filter { it.petMsg.isThinkingDisplayed() }
+            .maxByOrNull { it.petMsg.lastThinkingDisplayAt } ?: return
+        pets.filter { it.roleId != latest.roleId }.forEach { it.petMsg.suppressCrossRoleThinking() }
+    }
+
     private fun thinkingPetMsg(roleId: String?): TrayMsgManager? =
         roleId?.let { rid -> pets.firstOrNull { it.roleId == rid }?.petMsg } ?: trayMsgManager
 

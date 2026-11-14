@@ -91,7 +91,8 @@ object SoftwareBackup {
                 .put("summonPosition", PersonalizationPrefs.summonPosition(ctx))
                 .put("previewSource", PersonalizationPrefs.previewSource(ctx))
                 .put("previewPat", PersonalizationPrefs.previewPat(ctx))
-                .put("homePreviewMode", PersonalizationPrefs.homePreviewMode(ctx)))
+                .put("homePreviewMode", PersonalizationPrefs.homePreviewMode(ctx))
+                .put("singleCrossRoleThinking", PersonalizationPrefs.singleCrossRoleThinking(ctx)))
             .put("watermark", JSONObject()
                 .put("enabled", ImportWatermark.enabled(ctx))
                 .put("level", ImportWatermark.level(ctx).name))
@@ -148,6 +149,10 @@ object SoftwareBackup {
             }
             (p.opt("previewPat") as? Boolean)?.let {
                 PersonalizationPrefs.setPreviewPat(ctx, it)
+                applied++
+            }
+            (p.opt("singleCrossRoleThinking") as? Boolean)?.let {
+                PersonalizationPrefs.setSingleCrossRoleThinking(ctx, it)
                 applied++
             }
             val mode = p.opt("homePreviewMode") as? String
