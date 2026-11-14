@@ -184,11 +184,13 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
     private fun enterRandomText() {
         val options = effectiveThinking.pool.filter { thinkingTexts[it]?.isNotBlank() == true }
         if (options.isEmpty()) {
-            // Empty material pools are silent; never fall back to another role's text.
+            // Empty material pools are silent. Keep the rest timeline alive
+            // without borrowing any other function's or role's text.
             resetPhase(null, nextEmptyMs())
             showingText = false
             textView.text = ""
             textView.visibility = android.view.View.INVISIBLE
+            if (effectiveThinking.policy == "cycle") advanceWhenDue()
             return
         }
         enterText(options.random())

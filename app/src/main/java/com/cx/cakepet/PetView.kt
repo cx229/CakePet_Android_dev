@@ -1461,8 +1461,8 @@ class PetView @JvmOverloads constructor(
         )
     }
 
-    fun playOnce(name: String) {
-        imageManager.playOnce(name)
+    fun playOnce(name: String, functionPath: List<String>? = null) {
+        imageManager.playOnce(name, functionPath = functionPath)
     }
 
     fun setMode(name: String) {

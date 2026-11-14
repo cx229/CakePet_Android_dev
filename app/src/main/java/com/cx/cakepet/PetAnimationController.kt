@@ -4,14 +4,17 @@ import android.graphics.Bitmap
 
 /** 宠物专用的状态选择及动作生命周期，通用 ImageModeManager 不参与任何角色业务判断。 */
 class PetAnimationController(private val assets: ImageModeManager) {
-    private var currentName = assets.leavesOf("standby", "pool").randomOrNull()
-        ?: assets.leavesOf("standby", "static_pool").randomOrNull() ?: ""
+    private var currentFunctionPath: List<String> =
+        if (assets.leavesOf("standby", "pool").isNotEmpty()) listOf("standby", "pool")
+        else listOf("standby", "static_pool")
+    private var currentName = assets.leavesOf(*currentFunctionPath.toTypedArray()).randomOrNull() ?: ""
+    private var normalFunctionPath = currentFunctionPath
     private var clip: ImageModeManager.ModeClip? = assets.createClip(currentName)
     private var forced = false
     private var forcedReturn: String? = null
     private var forcedStart: String? = null
-    private var modeChanged = false
-    private var thinkingFunctionPath: List<String> = listOf("standby", "pool")
+    // Publish the initial function even if its first animation never ends.
+    private var modeChanged = true
     private val pendingFunctionForMode = mutableMapOf<String, List<String>>()
     private var frameMotionPending = true
     /** Active state-owned Functions path. A finished action chain resumes from this pool. */
@@ -24,7 +27,7 @@ class PetAnimationController(private val assets: ImageModeManager) {
     }
 
     private fun activeStateMode(): String? =
-        activeStateFunction?.let { path -> assets.leavesOf(*path.toTypedArray()).takeIf { it.isNotEmpty() }?.random() }
+        activeStateFunction?.let { path -> modeOf(*path.toTypedArray()) }
 
     var useStaticPool = false
     var forageActive = false
@@ -60,7 +63,7 @@ class PetAnimationController(private val assets: ImageModeManager) {
     }
     fun currentThinkingConfig(): Pair<ThinkingConfig, Map<String, String>> {
         val catalog = assets.currentPack.thinking
-        return catalog.resolve(getMode(), thinkingFunctionPath) to catalog.texts
+        return catalog.resolve(getMode(), currentFunctionPath) to catalog.texts
     }
     fun isFunctionMode(name: String, vararg path: String): Boolean = assets.isFunctionMode(name, *path)
     fun isDragMode(name: String = getMode()): Boolean =
@@ -124,20 +127,29 @@ class PetAnimationController(private val assets: ImageModeManager) {
         return true
     }
 
+    // Only a new function selection changes the context. A clip's nextMode
+    // is part of the same execution, irrespective of other function bindings.
+    private fun consumeFunction(id: String, explicitPath: List<String>? = null): List<String> {
+        val selected = explicitPath ?: pendingFunctionForMode[id]
+        pendingFunctionForMode.clear()
+        return selected ?: emptyList()
+    }
+
     fun setMode(id: String) {
         if (forced) return
         val next = assets.createClip(id) ?: return
         clip = next
-        thinkingFunctionPath = pendingFunctionForMode.remove(id) ?: activeStateFunction ?: thinkingFunctionPath
+        currentFunctionPath = consumeFunction(id)
+        normalFunctionPath = currentFunctionPath
         currentName = id
         modeChanged = true
         frameMotionPending = true
     }
 
-    fun playOnce(id: String, endMode: String? = null) {
+    fun playOnce(id: String, endMode: String? = null, functionPath: List<String>? = null) {
         val next = assets.createClip(id) ?: return
         clip = next
-        thinkingFunctionPath = pendingFunctionForMode.remove(id) ?: thinkingFunctionPath
+        currentFunctionPath = consumeFunction(id, functionPath)
         forced = true
         forcedReturn = endMode
         forcedStart = id
@@ -151,6 +163,8 @@ class PetAnimationController(private val assets: ImageModeManager) {
         forcedReturn = null
         forcedStart = null
         clip = assets.createClip(currentName)
+        currentFunctionPath = normalFunctionPath
+        pendingFunctionForMode.clear()
         modeChanged = true
         frameMotionPending = true
     }
@@ -171,7 +185,8 @@ class PetAnimationController(private val assets: ImageModeManager) {
         currentName = ""
         activeStateFunction = null
         pendingFunctionForMode.clear()
-        thinkingFunctionPath = standbyPath()
+        currentFunctionPath = standbyPath()
+        normalFunctionPath = currentFunctionPath
         selectInitialStandby()?.let { setMode(it) }
     }
 
@@ -213,7 +228,12 @@ class PetAnimationController(private val assets: ImageModeManager) {
                 forcedReturn = null
                 forcedStart = null
             }
-            if (!continuation) currentName = current.currentModeId
+            // A nextMode never selects a function. Even when physics releases
+            // forced playback, the clip retains its original function context.
+            if (!forced) {
+                currentName = current.currentModeId
+                normalFunctionPath = currentFunctionPath
+            }
             modeChanged = true
             frameMotionPending = true
         }
@@ -225,10 +245,16 @@ class PetAnimationController(private val assets: ImageModeManager) {
             forced = false
             forcedReturn = null
             forcedStart = null
+            // A caller-specified return is a resume of the previous normal
+            // execution, not an arbitrary reverse lookup of the returned Mode.
+            if (endMode != null) pendingFunctionForMode[endMode] = normalFunctionPath
             val desired = endMode ?: activeStateMode() ?: pickStandbyMode(getMode())
             if (desired == current.currentModeId) {
                 // Re-enter the same mode without replacing the cursor or resetting heading.
                 current.restart()
+                currentFunctionPath = consumeFunction(desired)
+                normalFunctionPath = currentFunctionPath
+                currentName = desired
                 modeChanged = true
                 frameMotionPending = true
             } else {

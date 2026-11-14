@@ -1011,6 +1011,8 @@ class PetService : Service() {
         }
         val petMsg = TrayMsgManager(this, roleId)
         view.onThinkingModeEntered = { config, texts -> petMsg.applyModeThinking(config, texts) }
+        val (initialThinking, initialTexts) = view.currentThinkingConfiguration()
+        petMsg.applyModeThinking(initialThinking, initialTexts)
 
         view.onLongPress = { showMenu(view) }
         // 交互前先切到本实例所属角色（长按不拖动也会触发，确保菜单/双击等都落在正确角色配置上）。
@@ -3902,7 +3904,7 @@ class PetService : Service() {
         if (tv.physics.isSnapped) return
         // Menu invocation is an interaction regardless of the selected Mode's
         // loop policy. The Mode itself decides whether/when playback ends.
-        tv.playOnce(mode)
+        tv.playOnce(mode, functionPath = listOf("menu", "pool"))
     }
 
     /** 彻底退出：持久化退出意图，释放资源，停止服务并结束整个应用进程。 */
