@@ -487,10 +487,10 @@ class PetService : Service() {
     // 长按弹出的浮窗菜单（TYPE_APPLICATION_OVERLAY），不进入 app task
     private var petMenu: PetMenu? = null
 
-    // 调试信息浮层（左下角）
-    private var debugView: android.widget.TextView? = null
-    private var debugParams: WindowManager.LayoutParams? = null
-    private var showDebug = false
+    // Each role owns its diagnostic overlay; no global selected-role alias.
+    private val debugWindows = linkedMapOf<String, PetDebugWindow>()
+    private var debugLastRefresh = 0L
+    private var debugFrameCount = 0
     private var showImageBorder = false
     private var showControlBorder = false
     // 用户「点击穿透」：语义上等同于“隐藏控制层”（显示窗本就 NOT_TOUCHABLE，屏蔽控制窗即可让点击
@@ -832,7 +832,6 @@ class PetService : Service() {
                 lastH = mlp.height
             }
             // 主实例整帧尺寸（调试浮层 updateDebug 仍按整只宠物绘制，与命中模式无关）。
-            val (w, h) = v0.getBaseBitmapSize()
             try {
                 windowManager.updateViewLayout(v0, mlp)
             } catch (_: Exception) {
@@ -865,41 +864,42 @@ class PetService : Service() {
             // 虚拟地面 = 用户在设置页拖动时看到的边界偏移线（boundLines），直接复用其坐标，
             // 位置与设置页偏移线完全一致；与宠物图片/帧锚点无关。
             // 遍历【所有实例】各算一段（修复：旧实现只驱动主实例，多宠物时其它宠物不显示）。
-            if (showDebug) updateDebug(w, h)
+            if (debugWindows.isNotEmpty()) updateDebugWindows(now)
 
             mainHandler.postDelayed(this, FRAME_DELAY)
         }
     }
 
-    // 调试数字格式化：符号占 1 列（负号为'-'，正数为空格），数字 4 位、前导空格填充，
-    // 总宽固定 5，避免数字位数变化（如 0↔100）导致调试浮窗宽度来回跳动。
-    // 例：-1234 / " 1234" / "   12" / "    0"
-    private fun fmt(n: Float): String = "% 5.0f".format(n)
+    private fun syncDebugWindow(roleId: String, enabled: Boolean) {
+        if (!enabled) {
+            debugWindows.remove(roleId)?.close()
+            return
+        }
+        val inst = pets.firstOrNull { it.roleId == roleId } ?: return
+        if (roleId in debugWindows) return
+        val win = PetDebugWindow(this, windowManager, ::getScreenBounds, debugWindows.size)
+        if (win.open()) {
+            debugWindows[roleId] = win
+            win.update(RoleStore.resolveDisplayName(this, roleId), inst,
+                pets.count { it.roleId == roleId }, maxOf(viewImeInset, globalImeInset),
+                currentForegroundApp, null)
+            debugLastRefresh = SystemClock.uptimeMillis()
+            debugFrameCount = 0
+        }
+    }
 
-    // 调试标签固定宽度左对齐：统一占 8 列，使各行冒号后的内容垂直对齐（避免标签长短不一难看）。
-    // 最长标签 "center:" 恰为 8 字符，其余补空格。
-
-    private fun updateDebug(w: Int, h: Int) {
-        val dv = debugView ?: return
-        val p = petView.physics
-        val left = layoutParams.x.toFloat()
-        val top = layoutParams.y.toFloat()
-        val right = left + w
-        val bottom = top + h
-        val cx = left + w / 2f
-        val cy = top + h / 2f
-        val L = { s: String -> "%-8s".format(s) }  // 标签固定 8 列左对齐
-        dv.text = buildString {
-            append("${L("mode:")}${petView.currentModeName()}\n")
-            append("${L("center:")}(${fmt(cx)}, ${fmt(cy)})\n")
-            append("${L("v:")}(${fmt(p.vx)}, ${fmt(p.vy)})\n")
-            append("${L("TL:")}(${fmt(left)}, ${fmt(top)})\n")
-            append("${L("TR:")}(${fmt(right)}, ${fmt(top)})\n")
-            append("${L("BR:")}(${fmt(right)}, ${fmt(bottom)})\n")
-            append("${L("BL:")}(${fmt(left)}, ${fmt(bottom)})\n")
-            // 当前前台应用包名（来自无障碍服务监听；未开启无障碍时为 null 显示 “-”）。
-            val fg = currentForegroundApp ?: "-"
-            append("${L("app:")}$fg")
+    private fun updateDebugWindows(now: Long) {
+        debugFrameCount++
+        val elapsed = now - debugLastRefresh
+        if (elapsed < 80L) return
+        val fps = if (elapsed > 0L && elapsed < 2000L) debugFrameCount * 1000f / elapsed else null
+        debugLastRefresh = now
+        debugFrameCount = 0
+        for ((roleId, win) in debugWindows) {
+            val instances = pets.filter { it.roleId == roleId }
+            val inst = instances.firstOrNull() ?: continue
+            win.update(RoleStore.resolveDisplayName(this, roleId), inst, instances.size,
+                maxOf(viewImeInset, globalImeInset), currentForegroundApp, fps)
         }
     }
 
@@ -1284,6 +1284,7 @@ class PetService : Service() {
         syncControlWindows(rt.roleId)
         applyDisplayTouchFlags(rt.roleId)
         applyImeHide(keyboardUp)
+        syncDebugWindow(rt.roleId, c.showDebug)
     }
 
     /** 按资源包 id 取得角色素材包；未知旧版预装 id 回退白酥。 */
@@ -1814,7 +1815,6 @@ class PetService : Service() {
             CakePetAccessibilityService.active == null) onAccessibilityUnavailable()
         config.normalizeBlocking() // 启动时清洗历史残留的非法四边重力组合
         val c = config.getBlocking()
-        showDebug = c.showDebug
         showImageBorder = c.showImageBorder
         showControlBorder = c.showControlBorder
         // 控制窗/显示窗开关（隐藏控制层、点击穿透、强制无透明、隐藏画布）均为【按角色独立】设置，
@@ -1827,7 +1827,6 @@ class PetService : Service() {
         boundOffsetBottom = (if (c.rangeFullScreen) 0f else c.offsetBottom).coerceIn(-300f, 2100f)
         boundOffsetLeft = (if (c.rangeFullScreen) 0f else c.offsetLeft).coerceIn(-300f, 1000f)
         boundOffsetRight = (if (c.rangeFullScreen) 0f else c.offsetRight).coerceIn(-300f, 1000f)
-        debugView?.visibility = if (showDebug) android.view.View.VISIBLE else android.view.View.GONE
         thinkingEnabled = c.thinkingEnabled
         thinkingOffsetY = c.thinkingOffset
         singleTrayMsg = c.singleTrayMsg
@@ -1993,7 +1992,6 @@ class PetService : Service() {
             imeLiftOffset = c.imeLiftOffset
             imeHideEnabled = c.imeHide
             effectiveVisible = c.visible && c.enabled
-            showDebug = c.showDebug
             showImageBorder = c.showImageBorder
             showControlBorder = c.showControlBorder
             // 控制窗/显示窗开关（隐藏控制层、点击穿透、强制无透明、隐藏画布）均为【按角色独立】设置，
@@ -2002,7 +2000,6 @@ class PetService : Service() {
             showBoundOffsetFlag = c.showBoundOffset
             showSnapOffsetFlag = c.showSnapOffset
             applyDebugGuides()
-            debugView?.visibility = if (showDebug) android.view.View.VISIBLE else android.view.View.GONE
             petView.invalidate()
             // 碎碎念：开关变化才重启轮播；其余共享配置（样式/可见性/错开高度）走 applySharedConfig
             if (c.thinkingEnabled != thinkingEnabled) {
@@ -4064,6 +4061,7 @@ class PetService : Service() {
         else clearAllFish(roleId)
         clearAllFreeze(roleId)
         modeAssetManagers.remove(roleId)
+        debugWindows.remove(roleId)?.close()
         pendingInitialPlacement.remove(roleId)
 
         val removed = pets.filter { it.roleId == roleId }
@@ -4112,7 +4110,6 @@ class PetService : Service() {
             // With no role remaining, they must not linger on the desktop.
             releaseGuide(DEBUG_BOUND_OWNER)
             releaseGuide(DEBUG_SNAP_OWNER)
-            debugView?.visibility = View.GONE
             if (guideAdded) {
                 guideLineView?.visibility = View.GONE
                 syncGuideWindow()
@@ -4124,27 +4121,6 @@ class PetService : Service() {
 
     /** 一次性创建调试浮层与四边吸附辅助线（不在 initPetView 内，避免随角色切换重复 addView）。 */
     private fun setupDebugWindows() {
-        debugView = android.widget.TextView(this).apply {
-            setTextColor(0xFFFFFF00.toInt())
-            textSize = 11f
-            typeface = android.graphics.Typeface.MONOSPACE
-            setBackgroundColor(0x80000000.toInt())
-            setPadding(8, 4, 8, 4)
-            visibility = android.view.View.GONE
-        }
-        debugParams = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            format = PixelFormat.TRANSLUCENT
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-            gravity = Gravity.BOTTOM or Gravity.START
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-        }
-        windowManager.addView(debugView, debugParams)
-
         guideLineView = GuideLineView(this).apply {
             visibility = android.view.View.GONE
             isClickable = false
@@ -4246,13 +4222,7 @@ class PetService : Service() {
                 }
             }
         }
-        // 调试文字
-        debugView?.let { d ->
-            debugParams?.let { lp ->
-                try { windowManager.removeView(d) } catch (_: Exception) {}
-                try { windowManager.addView(d, lp) } catch (_: Exception) {}
-            }
-        }
+        debugWindows.values.forEach { it.bringToFront() }
         // 碎碎念（每个实例各自一个窗，全部置于宠物之上）
         for (p in pets) {
             try { p.petMsg.bringToFront() } catch (_: Exception) {}
@@ -4292,7 +4262,8 @@ class PetService : Service() {
         // 移除独立 guide 辅助线窗（若有）
         try { if (guideAdded && guideLineView != null) windowManager.removeView(guideLineView) } catch (_: Exception) {}
         guideAdded = false
-        try { if (debugView != null) windowManager.removeView(debugView) } catch (_: Exception) {}
+        debugWindows.values.forEach { it.close() }
+        debugWindows.clear()
         guideLineView = null
         // 停止所有角色的投食循环（按角色独立持有的 runnable），并清除全部支鱼（回收 Bitmap，防泄漏）
         for (rt in engines.values) {

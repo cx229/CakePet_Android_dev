@@ -62,6 +62,19 @@ class PetAnimationController(private val assets: ImageModeManager) {
     fun modeOf(vararg path: String): String? = assets.modeOf(*path)?.also {
         pendingFunctionForMode[it] = path.toList()
     }
+    internal fun debugSnapshot(): AnimationDebugSnapshot {
+        val catalog = assets.currentPack.thinking
+        val mode = catalog.modes[getMode()]
+        val source = when {
+            mode != null && mode.policy != "inherit" -> "动画覆盖"
+            currentFunctionPath in catalog.functions -> "继承功能"
+            else -> "默认（空池）"
+        }
+        return AnimationDebugSnapshot(clip?.debugSnapshot(), currentFunctionPath,
+            activeStateFunction, standbyPath(), forced, forcedReturn, source,
+            assets.currentPack.version, assets.currentPack.id, assets.globalW, assets.globalH)
+    }
+
     fun currentThinkingConfig(): Pair<ThinkingConfig, Map<String, String>> {
         val catalog = assets.currentPack.thinking
         return catalog.resolve(getMode(), currentFunctionPath) to catalog.texts

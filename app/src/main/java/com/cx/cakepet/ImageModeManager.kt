@@ -35,7 +35,8 @@ data class SpritePack(
     // 模式名 → 是否循环（modes 里每项的 loop）。循环类（走/蠕动等）须用 setMode 常驻，
     // 一次性类用 playOnce；由素材包声明，代码不写死哪些动作该常驻。
     val modeLoops: Map<String, Boolean> = emptyMap(),
-    val thinking: PackThinking = PackThinking()
+    val thinking: PackThinking = PackThinking(),
+    val version: String = ""
 )
 
 
@@ -191,7 +192,8 @@ class ImageModeManager(
         val id = if (root.has("id")) root.optString("id", currentPack.id) else currentPack.id
         val name = if (root.has("name")) root.optString("name", currentPack.name) else currentPack.name
         currentPack = currentPack.copy(
-            id = id, decodeTarget = decodeTarget.coerceAtLeast(0), anchorRes = anchorRes.coerceAtLeast(1), name = name
+            id = id, decodeTarget = decodeTarget.coerceAtLeast(0), anchorRes = anchorRes.coerceAtLeast(1), name = name,
+            version = root.optString("version", currentPack.version)
         )
         // 清空旧模式，按 JSON 重建
         modes.clear()
@@ -328,6 +330,36 @@ class ImageModeManager(
 
     inner class ModeClip internal constructor(startMode: String) {
         private var def = requireNotNull(modes[startMode]) { "Undefined Mode: $startMode" }
+        private var debugChainStart = startMode
+        private var debugChainCache: DebugChain? = null
+
+        private fun debugChain(): DebugChain {
+            debugChainCache?.let { return it }
+            val ids = mutableListOf<String>()
+            var next: String? = debugChainStart
+            var terminal = ""
+            while (next != null) {
+                val id = next
+                if (id in ids) { terminal = "↻ " + id; break }
+                ids.add(id)
+                val node = modes[id]
+                if (node == null) { terminal = "缺失"; break }
+                if (node.loopMode == "infinite") { terminal = "◎"; break }
+                next = node.nextModeName
+            }
+            return DebugChain(ids.toList(), terminal).also { debugChainCache = it }
+        }
+
+        internal fun debugSnapshot(): ClipDebugSnapshot = ClipDebugSnapshot(
+            chain = debugChain(), mode = currentModeId, frame = frameIndex + 1,
+            frames = def.frames.size, frameElapsed = elapsed, frameDuration = frameDelay,
+            loop = def.loopMode, durationMin = def.durationMin, durationMax = def.durationMax,
+            elapsed = timeElapsed, target = debugTargetMs, cycles = completedCycles,
+            finishCycle = def.finishCycle, waiting = pendingFinish, next = def.nextModeName,
+            ended = isEnded, resource = currentResName, x = currentAnchorX, y = currentAnchorY,
+            dx = currentDx, dy = currentDy, align = currentVerticalAlign, transform = currentTransform,
+            accumulatedX = previewMotionX, accumulatedY = previewMotionY
+        )
         private var frameIndex = 0
         private var elapsed = 0L
         private var frameDelay = def.frames[0].delay().coerceAtLeast(1L)
@@ -398,6 +430,8 @@ class ImageModeManager(
 
         /** Reuse the cursor when a function pool selects its current mode again. */
         fun restart() {
+            debugChainStart = def.name
+            debugChainCache = null
             previewMotionX = def.frames[0].dx
             previewMotionY = def.frames[0].dy
             resetPlayback(restartTimer = true)

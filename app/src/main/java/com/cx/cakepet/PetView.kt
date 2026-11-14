@@ -1447,6 +1447,9 @@ class PetView @JvmOverloads constructor(
 
     /** 当前动画模式名（供调试显示） */
     fun currentModeName(): String = imageManager.getMode()
+    internal fun debugAnimationSnapshot() = imageManager.debugSnapshot()
+    internal fun debugRenderRotation() = stateRotation
+    internal fun debugRenderMirror() = stateFlip
 
     /** 当前模式是否处于待机动作清单（供投喂判断是否切"坐姿投食"）。 */
     fun isStandbyMode(): Boolean = imageManager.isStandbyMode()

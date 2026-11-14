@@ -179,6 +179,23 @@ class TrayMsgManager(private val context: Context, private val roleId: String? =
         }
     }
 
+    internal fun debugSnapshot(): ThinkingDebugSnapshot {
+        val id = phaseId
+        val phase = when {
+            !enabled -> "关闭"
+            previewActive -> "预览"
+            materializing -> "显形"
+            dissolving -> "退场"
+            id != null -> "文本"
+            else -> "休息"
+        }
+        val locked = (effectiveThinking.policy == "hold" && id != null) ||
+            (effectiveThinking.policy == "off" && id == null)
+        return ThinkingDebugSnapshot(effectiveThinking.policy, effectiveThinking.pool.size,
+            id, id?.let { thinkingTexts[it] }, phase, elapsedPhase(), phaseTargetMs, locked,
+            isThinkingDisplayed(), crossRoleSuppressed)
+    }
+
     private fun elapsedPhase(): Long =
         (SystemClock.uptimeMillis() - phaseStartedAt).coerceAtLeast(0L)
 
