@@ -149,7 +149,8 @@ class GlobalSettingsActivity : AppCompatActivity() {
                     setOnCheckedChangeListener { _, checked ->
                         PersonalizationPrefs.setSingleCrossRoleThinking(this@GlobalSettingsActivity, checked)
                     }
-                    findViewById<View>(R.id.row_single_cross_role_thinking).setOnClickListener { isChecked = !isChecked }
+                    this@GlobalSettingsActivity.findViewById<View>(R.id.row_single_cross_role_thinking)
+                        .setOnClickListener { isChecked = !isChecked }
                 }
                 val watermarkLevelRow = findViewById<View>(R.id.row_import_watermark_level)
                 val levelSpinner = findViewById<android.widget.Spinner>(R.id.sp_import_watermark_level)
