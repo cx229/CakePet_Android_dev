@@ -15,7 +15,7 @@ internal object MaterialFunctionSupport {
     val PREVIEW = listOf("menu", "preview")
     val NORMAL = listOf("standby", "pool")
     val THROW = listOf("touch", "roll")
-    val SNAP = listOf("snap", "snap_head")
+    val SNAP = listOf("snap", "pool")
     val FEED = listOf("feed", "food")
     val LEAP = listOf("climb", "leap", "leap")
     val FORAGE = listOf("climb", "forage", "move")
@@ -70,7 +70,7 @@ internal object MaterialFunctionSupport {
             } else {
                 java.io.File(ctx.filesDir, "roles/${descriptor.rootPath}/modes.jsonc").readText()
             }
-            parseJsonc(source)
+            parseJsonc(source).also { RolePackNormalizer.completeLegacySnapPool(it) }
         }.getOrNull()
     }
 

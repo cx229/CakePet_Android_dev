@@ -1,5 +1,5 @@
 {
-  "version": "1.10",
+  "version": "1.11",
   "id": "baiasu",
   "name": "白酥",
   "shortName": "酥",
@@ -251,6 +251,57 @@
       "note": "吸附或探头状态下的交互入口。",
       "snap_head": {
         "modes": ["探头中"],
+        "thinking": {
+          "policy": "cycle",
+          "pool": {
+            "t001": {"min": 500, "max": 4000},
+            "t002": {"min": 500, "max": 4000},
+            "t003": {"min": 500, "max": 4000},
+            "t004": {"min": 500, "max": 4000},
+            "t005": {"min": 500, "max": 4000},
+            "t006": {"min": 500, "max": 4000},
+            "t007": {"min": 500, "max": 4000},
+            "t008": {"min": 500, "max": 4000},
+            "t009": {"min": 500, "max": 4000},
+            "t010": {"min": 500, "max": 4000},
+            "t011": {"min": 500, "max": 4000},
+            "t012": {"min": 500, "max": 4000},
+            "t013": {"min": 500, "max": 4000},
+            "t014": {"min": 500, "max": 4000},
+            "t016": {"min": 500, "max": 4000},
+            "t017": {"min": 500, "max": 4000},
+            "t018": {"min": 500, "max": 4000},
+            "t020": {"min": 500, "max": 4000},
+            "t019": {"min": 500, "max": 4000},
+            "t021": {"min": 500, "max": 4000},
+            "t022": {"min": 500, "max": 4000},
+            "t023": {"min": 500, "max": 4000},
+            "t024": {"min": 500, "max": 4000},
+            "t025": {"min": 500, "max": 4000},
+            "t026": {"min": 500, "max": 4000},
+            "t027": {"min": 500, "max": 4000},
+            "t028": {"min": 500, "max": 4000},
+            "t029": {"min": 500, "max": 4000},
+            "t030": {"min": 500, "max": 4000},
+            "t031": {"min": 500, "max": 4000},
+            "t032": {"min": 500, "max": 4000},
+            "t033": {"min": 500, "max": 4000},
+            "t034": {"min": 500, "max": 4000},
+            "t036": {"min": 500, "max": 4000},
+            "t035": {"min": 500, "max": 4000},
+            "t037": {"min": 500, "max": 4000},
+            "t038": {"min": 500, "max": 4000},
+            "t039": {"min": 500, "max": 4000},
+            "t040": {"min": 500, "max": 4000},
+            "t041": {"min": 500, "max": 4000},
+            "t048": {"min": 500, "max": 4000},
+            "t049": {"min": 500, "max": 4000},
+            "t050": {"min": 500, "max": 4000}
+          }
+        }
+      },
+      "pool": {
+        "modes": ["探头"],
         "thinking": {
           "policy": "cycle",
           "pool": {
@@ -685,7 +736,7 @@
       "note": "进入探头状态的过渡，结束后转入「探头」。",
       "loopMode": "off",
       "loop": false,
-      "nextMode": "探头",
+      "nextMode": null,
       "groups": ["探头"],
       "frames": [
         {"res": "探头\/probe_head-4.png", "delay": [70, 80], "anchorY": 11, "verticalAlign": "top"},
@@ -698,7 +749,7 @@
       "loop": true,
       "duration": {"min": 3000, "max": 4000},
       "finishCycle": true,
-      "nextMode": "探头",
+      "nextMode": null,
       "groups": ["摸摸头", "探头"],
       "frames": [
         {"res": "探头摸摸头\/probe_pat_head-1.png", "delay": [105, 110], "anchorY": 11, "verticalAlign": "top"},
@@ -768,7 +819,7 @@
       ]
     },
     "探头": {
-      "note": "探头状态的持续动作，由 nextMode 进入。",
+      "note": "保持吸附状态时由吸附待机池选取。",
       "loopMode": "infinite",
       "loop": true,
       "duration": null,
@@ -803,7 +854,7 @@
       "loop": true,
       "duration": {"min": 2000, "max": 3000},
       "finishCycle": true,
-      "nextMode": "探头",
+      "nextMode": null,
       "groups": ["探头", "投喂"],
       "frames": [
         {"res": "探头投食\/feed_fish-5.png", "delay": [90, 100], "anchorY": 11, "verticalAlign": "top"},

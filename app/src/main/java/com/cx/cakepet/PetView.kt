@@ -156,6 +156,7 @@ class PetView @JvmOverloads constructor(
     // 吸附态专属镜像（水平翻转）：吸附探头时左右/上下随机朝向（不修改全局 flipX）。
     // 仅吸附态渲染时应用，退出吸附即不生效，零状态残留、不污染 普通动画/静置等朝向逻辑。
     private var snapFlipX = false
+    private var snapStateEntered = false
     // 攀爬态专属旋转角（度，顺时针）：脚朝所攀墙(climbSide)，仅攀爬态渲染时应用，
     // 不修改全局 gravityDir/gravityRotation，退出攀爬即归零，不影响其他状态方向。
     internal var climbRotation = 0f
@@ -975,7 +976,12 @@ class PetView @JvmOverloads constructor(
                 imageManager.forceReset()
             }
         }
-        // Snap controls its mapped idle playback policy, not a separate animation definition.
+        // Physical entry is an event, not a reverse lookup of the displayed animation.
+        val enteringSnap = physics.isSnapped && !snapStateEntered
+        if (!physics.isSnapped && imageManager.executingSnapFunction()) {
+            imageManager.forceReset()
+        }
+        snapStateEntered = physics.isSnapped
 
         if (!physics.isDragging) activeDragFunction = null
         when {
@@ -1012,29 +1018,21 @@ class PetView @JvmOverloads constructor(
                 }
             }
             physics.isSnapped -> {
-                // 吸附态：保持贴边物理状态，显示动作由功能映射选择（当前模板映射至探头）。
-                // 抢占一次性动作（如摸头），确保吸附探头不被打断；
-                // 但允许「吸附探头摸头」与「吸附探头投食」一次性动作完整播放，
-                // 结束后分别由其 nextMode 切回吸附探头。
-                // 二者末段同名不同义（snap/pat_head/pat_head vs pat_head/pat_head），必须靠完整路径区分。
-                val snapActionAllowed =
-                    imageManager.isFunctionMode(imageManager.getMode(), "snap", "pat_head", "pat_head") ||
-                    imageManager.isFunctionMode(imageManager.getMode(), "snap", "feed", "eat")
-                if (imageManager.isPlayingForced() && !snapActionAllowed) {
-                    imageManager.cancelForced()
-                }
-                // 仅本变体叠加“朝向贴附边”的旋转，不修改全局 gravityDir（不影响其他状态/方向）。
                 snapRotation = dirToRotation(physics.snapSide)
-                val curMode = imageManager.getMode()
-                if (!snapActionAllowed &&
-                    !imageManager.isFunctionMode(curMode, "snap", "snap_head")) {
-                    // 刚进入吸附的这一帧：振动一次提示（getMode 已为吸附探头后不再重复触发）。
-                    modeOf("snap", "snap_head")?.let { imageManager.setMode(it) }
-                    // 反向镜像随机：吸附探头脚朝向固定（snapRotation），但左右/上下随机翻转，
-                    // 仅存于 snapFlipX，不污染全局 flipX（退出吸附后自然失效，零状态残留）。
+                if (enteringSnap) {
+                    if (imageManager.isPlayingForced()) imageManager.cancelForced()
+                    val entry = modeOf("snap", "snap_head")
+                    if (entry != null) imageManager.playOnce(entry)
+                    else modeOf("snap", "pool")?.let { imageManager.setMode(it) }
                     snapFlipX = kotlin.random.Random.nextBoolean()
                     vibrateOnce()
+                } else if (!imageManager.executingSnapFunction()) {
+                    // Reset/pack refresh while attached resumes the pool, not the entry event.
+                    if (imageManager.isPlayingForced()) imageManager.cancelForced()
+                    modeOf("snap", "pool")?.let { imageManager.setMode(it) }
                 }
+                // Interactions and their whole nextMode chains retain their function.
+                // Natural completion returns to the state-owned pool below.
             }
             // 其余状态（静置/落地后）：
             // 若正在播放一次性动作（如摸头）则不打断；
@@ -1076,7 +1074,7 @@ class PetView @JvmOverloads constructor(
             physics.isDragging && !useStaticPool ->
                 listOf("touch", "lift_up", activeDragFunction ?: "slow")
             physics.isThrowing && !useStaticPool -> listOf("touch", "roll")
-            physics.isSnapped -> listOf("snap", "snap_head")
+            physics.isSnapped -> listOf("snap", "pool")
             flying -> listOf("climb", "leap", "leap")
             physics.isClimbing && forageActive && imageManager.forageSelected ->
                 listOf("climb", "forage", "move")
@@ -1414,7 +1412,7 @@ class PetView @JvmOverloads constructor(
         // 探头/吸附类动作（吸附探头、吸附摸摸头、吸附投食）：脚底盒【中心与脚锚点对齐】（水平+垂直），
         // 即盒子以脚锚点为对称中心，而非非探头动作那种“盒底贴脚、向上抬”。这样方向无关——
         // 从任意边探头（脚朝上/下/左/右），盒子都向身体一侧延伸并覆盖整只宠物，保证摸摸头/投食/探头可命中。
-        if (imageManager.isFunctionMode(mode, "snap", "snap_head") ||
+        if (physics.isSnapped || imageManager.isFunctionMode(mode, "snap", "snap_head") ||
             imageManager.isFunctionMode(mode, "snap", "pat_head", "pat_head") ||
             imageManager.isFunctionMode(mode, "snap", "feed", "eat")) {
             return rotateOffsetWith(offX, offY, w, h, effRot)
@@ -1761,6 +1759,7 @@ class PetView @JvmOverloads constructor(
     fun forceReset() {
         pendingLeapMode = null
         imageManager.forceReset()
+        snapStateEntered = false
         physics.clearSnap()   // 召回同时退出吸附态
         physics.snapSide = 0
         physics.isClimbing = false   // 召回同时退出攀爬态
@@ -2005,6 +2004,7 @@ class PetView @JvmOverloads constructor(
                     val wasSnapped = physics.isSnapped
                     physics.clearSnap()
                     if (wasSnapped) {
+                        snapStateEntered = false
                         physics.snapSide = 0
                         snapRotation = 0f
                         snapFlipX = false

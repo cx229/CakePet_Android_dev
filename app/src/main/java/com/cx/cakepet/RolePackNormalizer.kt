@@ -38,6 +38,23 @@ internal object RolePackNormalizer {
             .put("detail", detail).apply { if (raw != null) put("raw", raw) }
     }
 
+    /** Structure-only upgrade, also used when loading an already-installed old pack. */
+    fun completeLegacySnapPool(root: JSONObject): Boolean {
+        val version = root.optString("version")
+        val parts = version.split(".").mapNotNull { it.toIntOrNull() }
+        if (parts.size != 2 || parts[0] != 1 || parts[1] >= 11) return false
+        val snap = root.optJSONObject("functions")?.optJSONObject("snap") ?: return false
+        if (snap.has("pool")) return false
+        val original = snap.opt("snap_head")
+        val copy = when (original) {
+            is JSONArray -> JSONArray(original.toString())
+            is JSONObject -> if (original.optJSONArray("modes") != null) JSONObject(original.toString()) else return false
+            else -> return false
+        }
+        snap.put("pool", copy)
+        return true
+    }
+
     private fun kind(value: Any?): String = when (value) {
         null, JSONObject.NULL -> "null"
         is JSONObject -> "Object"
@@ -99,6 +116,7 @@ internal object RolePackNormalizer {
                 raw.put("frames", JSONArray())
             }
         }
+        if (completeLegacySnapPool(root)) issues += Issue("已补全", "functions/snap/pool", "沿用原探头功能映射及碎碎念，未修改动画")
         val functions = root.getJSONObject("functions")
         // Normalize every declared function path, including ones missing from incoming JSON.
         for (path in supportedPaths) {

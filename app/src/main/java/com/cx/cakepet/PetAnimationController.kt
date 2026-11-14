@@ -51,6 +51,7 @@ class PetAnimationController(private val assets: ImageModeManager) {
     fun curDy(): Int = clip?.currentDy ?: 0
     fun getMode(): String = clip?.currentModeId ?: ""
     fun isPlayingForced(): Boolean = forced
+    fun executingSnapFunction(): Boolean = currentFunctionPath.firstOrNull() == "snap"
     /** Frame impulse is consumed once for initial frame, every advance and loop wrap. */
     fun consumeFrameDisplacement(): Pair<Int, Int>? {
         if (!frameMotionPending) return null
@@ -218,7 +219,7 @@ class PetAnimationController(private val assets: ImageModeManager) {
             // A forced interaction can naturally return to the state-owned
             // infinite idle animation (e.g. snapped pat -> snapped idle).
             // At that point the state, not the old interaction, owns playback.
-            val stateOwnsInfinite = current.isInfiniteLoop && activeStateFunction?.let { path ->
+            val stateOwnsInfinite = current.isInfiniteLoop && activeStateFunction?.takeUnless { it.firstOrNull() == "snap" }?.let { path ->
                 assets.leavesOf(*path.toTypedArray()).any {
                     assets.isContinuationOf(current.currentModeId, it)
                 }

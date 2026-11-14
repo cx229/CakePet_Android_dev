@@ -1947,7 +1947,7 @@ class PetService : Service() {
                 p.snapBottom = c.snapBottom
                 p.snapLeft = c.snapLeft
                 p.snapRight = c.snapRight
-                p.snapEnabled = c.snapEnabled && inst.view.hasFunction("snap", "snap_head")   // 吸附边缘总开关：关闭则完全不吸附
+                p.snapEnabled = c.snapEnabled && inst.view.hasFunction("snap", "pool")   // 吸附边缘总开关：关闭则完全不吸附
                 p.reboundEnabled = c.reboundEnabled   // 反弹总开关：关闭则所有碰撞反弹失效（撞墙停靠、不振动）
                 p.snapDist = c.snapThreshold   // 吸附判定距离阈值（像素）
                 p.gravityEnabled = effectiveGravity

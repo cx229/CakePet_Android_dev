@@ -4387,7 +4387,8 @@ open class RolePackEditorActivity : AppCompatActivity() {
         "standby/pool" -> "正常待机将没有可用动画，召唤或归位后可能无法正常待机"
         "standby/static_pool" -> "「移动」将被强制开启，无法关闭移动让角色静止"
         "touch/roll" -> "「抛掷」将被强制关闭，无法触发抛掷滚动"
-        "snap/snap_head" -> "「吸附边缘」将被强制关闭，无法使用吸附功能"
+        "snap/pool" -> "「吸附边缘」将被强制关闭，无法使用吸附功能"
+        "snap/snap_head" -> "触发吸附时将直接进入吸附待机池"
         "feed/food" -> "「投食」将被强制关闭，无法投喂"
         "climb/leap/leap" -> "「飞跃」将被强制关闭，无法自动飞跃"
         "climb/forage/move" -> "「自动觅食」将被强制关闭，不再主动奔向食物"
@@ -4442,6 +4443,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
             "feed/food" -> "食物"
             "standby/pool" -> "待机池"
             "standby/static_pool" -> "静止待机池"
+            "snap/pool" -> "吸附待机池"
             "menu/pool" -> "手动选择"
             "menu/summoned" -> "已召唤"
             "menu/preview" -> "预览"
@@ -4488,7 +4490,8 @@ open class RolePackEditorActivity : AppCompatActivity() {
         "touch/lift_up/left_fast" -> "向左快速拖动提起时播放"
         "touch/lift_up/right_medium" -> "向右中速拖动提起时播放"
         "touch/lift_up/right_fast" -> "向右快速拖动提起时播放"
-        "snap/snap_head" -> "角色吸附边缘后探头时播放"
+        "snap/snap_head" -> "角色刚吸附边缘时播放"
+        "snap/pool" -> "角色保持吸附时，从候选动画中选择播放"
         "snap/pat_head/pat_head" -> "角色吸附状态被摸头时播放"
         "snap/feed/eat" -> "角色吸附状态接受投喂时播放"
         "climb/leap/leap" -> "角色飞跃过程中播放的动画"
@@ -4537,6 +4540,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
             "touch" -> listOf("lift_up", "roll", "jump_down")
             "feed" -> listOf("food", "eat")
             "standby" -> listOf("pool", "static_pool")
+            "snap" -> listOf("snap_head", "pool", "pat_head", "feed")
             else -> emptyList()
         }
         return priority.filter { it in children } + children.filter { it !in priority }.sorted()

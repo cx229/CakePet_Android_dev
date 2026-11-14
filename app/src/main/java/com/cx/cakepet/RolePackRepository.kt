@@ -49,6 +49,7 @@ fun loadPackMeta(ctx: android.content.Context, base: String, source: RoleSource)
         }
     } catch (_: Exception) { return skeleton }
     val root = try { parseJsonc(raw) } catch (_: Exception) { return skeleton }
+    RolePackNormalizer.completeLegacySnapPool(root)
     return skeleton.copy(
         id = if (root.has("id")) root.optString("id", base) else base,
         decodeTarget = if (root.has("decodeTarget")) root.optInt("decodeTarget", 0) else 0,
