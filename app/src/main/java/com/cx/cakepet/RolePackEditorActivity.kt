@@ -970,6 +970,8 @@ open class RolePackEditorActivity : AppCompatActivity() {
         functionDetailRefreshers.clear()
         modeChainPickerRefreshers.clear()
         removeBulkBar()
+        removeThinkingBulkBar()
+        thinkingSelectionRefreshers.clear()
         stopAnimation()
         detailPreviewTasks.values.toList().forEach { handler.removeCallbacks(it) }
         detailPreviewTasks.clear()
@@ -1139,6 +1141,11 @@ open class RolePackEditorActivity : AppCompatActivity() {
             modePageRecycler != null && resourcePageUpdater != null) {
             panel.removeAllViews() // temporary new header; existing header stays mounted
             return
+        }
+        if (screen != dest) {
+            thinkingBulkSelected.clear()
+            thinkingSelectionRefreshers.clear()
+            removeThinkingBulkBar()
         }
         resourcePageUpdater = null
         resourceCachedPage = null
@@ -1876,8 +1883,12 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 val index = position - offset
                 if (index in items.indices && canMove(items[index].first)) {
                     (view.getChildAt(0) as? View)?.setOnLongClickListener {
-                        touch.startDrag(holder)
-                        true
+                        if (incrementalPage == "thinkings" && thinkingBulkSelected.isNotEmpty()) {
+                            false
+                        } else {
+                            touch.startDrag(holder)
+                            true
+                        }
                     }
                 }
             }
@@ -1944,7 +1955,8 @@ open class RolePackEditorActivity : AppCompatActivity() {
             override fun isLongPressDragEnabled(): Boolean = false
             override fun getMovementFlags(rv: RecyclerView, holder: RecyclerView.ViewHolder): Int {
                 val index = holder.bindingAdapterPosition - offset
-                return if (index in items.indices && canMove(items[index].first))
+                return if (index in items.indices && canMove(items[index].first) &&
+                    !(incrementalPage == "thinkings" && thinkingBulkSelected.isNotEmpty()))
                     makeMovementFlags(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) else 0
             }
             override fun onMove(rv: RecyclerView, from: RecyclerView.ViewHolder,
@@ -6005,14 +6017,100 @@ open class RolePackEditorActivity : AppCompatActivity() {
         return uses
     }
 
+    private val thinkingBulkSelected = linkedSetOf<String>()
+    private val thinkingSelectionRefreshers = mutableMapOf<String, () -> Unit>()
+    private var syncingThinkingSelection = false
+    private var thinkingBulkBar: View? = null
+    private var thinkingBulkCount: TextView? = null
+
+    private fun removeThinkingBulkBar() {
+        thinkingBulkBar?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        thinkingBulkBar = null
+        thinkingBulkCount = null
+        if (screen == "thinkings") modePageRecycler?.let {
+            it.setPadding(it.paddingLeft, it.paddingTop, it.paddingRight, px(16))
+        }
+    }
+
+    private fun refreshThinkingSelection() {
+        syncingThinkingSelection = true
+        try {
+            thinkingSelectionRefreshers.values.forEach { it() }
+        } finally {
+            syncingThinkingSelection = false
+        }
+        updateThinkingBulkBar()
+    }
+
+    private fun toggleThinkingSelection(id: String, checked: Boolean) {
+        if (checked) thinkingBulkSelected.add(id) else thinkingBulkSelected.remove(id)
+        refreshThinkingSelection()
+    }
+
+    private fun updateThinkingBulkBar() {
+        if (screen != "thinkings" || thinkingBulkSelected.isEmpty()) {
+            removeThinkingBulkBar()
+            return
+        }
+        thinkingBulkCount?.text = "已选择 ${thinkingBulkSelected.size} 条碎碎念"
+        if (thinkingBulkBar != null) return
+        val host = findViewById<FrameLayout>(android.R.id.content)
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(12), px(8), px(12), px(8))
+            setBackgroundResource(R.drawable.card_bg)
+            elevation = px(8).toFloat()
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        thinkingBulkCount = text("已选择 ${thinkingBulkSelected.size} 条碎碎念", 14f)
+        header.addView(thinkingBulkCount, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(text("全选", 13f).apply {
+            setOnClickListener {
+                thinkingBulkSelected.addAll(allThinkingIds())
+                refreshThinkingSelection()
+            }
+        })
+        header.addView(text("清空", 13f).apply {
+            setOnClickListener {
+                thinkingBulkSelected.clear()
+                refreshThinkingSelection()
+            }
+        })
+        body.addView(header)
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        buttons.addView(button("增加组") { editBulkThinkingGroups(true) },
+            LinearLayout.LayoutParams(0, px(44), 1f).apply { rightMargin = px(4) })
+        buttons.addView(button("移除组") { editBulkThinkingGroups(false) },
+            LinearLayout.LayoutParams(0, px(44), 1f).apply { rightMargin = px(4) })
+        buttons.addView(button("删除") { confirmBulkThinkingDelete() }.apply {
+            setTextColor(getColor(R.color.cp_danger))
+        }, LinearLayout.LayoutParams(0, px(44), 1f))
+        body.addView(buttons)
+        thinkingBulkBar = body
+        host.addView(body, FrameLayout.LayoutParams(-1, px(102), Gravity.BOTTOM).apply {
+            leftMargin = px(12)
+            rightMargin = px(12)
+            bottomMargin = px(8)
+        })
+        // Keep the last list item reachable above the overlay.
+        modePageRecycler?.let {
+            it.setPadding(it.paddingLeft, it.paddingTop, it.paddingRight, px(126))
+        }
+    }
+
     private fun thinkingResources() {
         section("碎碎念文本", "thinkings")
+        thinkingBulkSelected.retainAll(allThinkingIds().toSet())
         panel.addView(text("管理角色的底部消息文本。\n点击“+”创建文本；点击“文本卡片”进行编辑。", 12f).apply {
             setTextColor(getColor(R.color.cp_note))
         })
         twoActions("＋ 新建碎碎念", { thinkingDetails(null) },
             "＋ 新建碎碎念组", { newThinkingGroup() })
         renderThinkingGroups(panel)
+        refreshThinkingSelection()
     }
 
     private fun newThinkingGroup() {
@@ -6044,6 +6142,8 @@ open class RolePackEditorActivity : AppCompatActivity() {
             else groups.forEach { grouped.getOrPut(it) { mutableListOf() }.add(id) }
         }
         val folderRows = mutableListOf<Pair<String, LinearLayout>>()
+        val selectable = !linkedPreview && !linkedReadOnly && target === panel
+        if (selectable) thinkingSelectionRefreshers.keys.retainAll(grouped.keys)
         for ((group, ids) in grouped) {
             if (!linkedPreview && target === panel) {
                 val reused = cachedResourceGroup("thinkings", group)
@@ -6063,16 +6163,34 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 setPadding(px(12), px(6), px(12), px(6))
                 minimumHeight = px(folderMinHeightDp)
             }
+            val selectionUpdates = mutableListOf<() -> Unit>()
+            if (selectable) {
+                val (check, refresh) = pickerFolderCheckbox(group, ids, { it in thinkingBulkSelected }) { all ->
+                    if (all) thinkingBulkSelected.addAll(ids)
+                    else thinkingBulkSelected.removeAll(ids.toSet())
+                    refreshThinkingSelection()
+                }
+                check.isEnabled = ids.isNotEmpty()
+                folder.addView(check, LinearLayout.LayoutParams(px(40), px(44)))
+                selectionUpdates.add(refresh)
+            }
             folder.addView(text(if (opened) "▾ 📂" else "▸ 📁", folderHeadingSp),
                 LinearLayout.LayoutParams(px(folderGlyphWidthDp), -2))
             val groupLabels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             groupLabels.addView(text(group, folderHeadingSp))
-            groupLabels.addView(text("${ids.size}条碎碎念", folderSubtitleSp).apply {
+            val groupCount = text("${ids.size}条碎碎念", folderSubtitleSp).apply {
                 setTextColor(getColor(R.color.cp_note))
                 setPadding(0, px(2), 0, 0)
-            })
+            }
+            groupLabels.addView(groupCount)
+            if (selectable) selectionUpdates.add {
+                groupCount.text = if (thinkingBulkSelected.isEmpty()) "${ids.size}条碎碎念"
+                    else "${ids.count { it in thinkingBulkSelected }}/${ids.size}条碎碎念"
+            }
             folder.addView(groupLabels, LinearLayout.LayoutParams(0, -2, 1f))
+            val groupActions = mutableListOf<View>()
             if (!linkedPreview && group != "全部") folder.addView(text("+", 23f).apply {
+                groupActions.add(this)
                 gravity = Gravity.CENTER
                 isClickable = true
                 contentDescription = if (group == "未分组") "新建未分组碎碎念" else "在${group}中新建碎碎念"
@@ -6082,11 +6200,17 @@ open class RolePackEditorActivity : AppCompatActivity() {
             }, LinearLayout.LayoutParams(px(38), px(44)))
             if (!linkedPreview && group != "全部" && group != "未分组")
                 folder.addView(text("⋮", 23f).apply {
+                    groupActions.add(this)
                     gravity = Gravity.CENTER
                     isClickable = true
                     contentDescription = "$group 分组操作"
                     setOnClickListener { anchor -> showThinkingGroupOptions(anchor, group) }
                 }, LinearLayout.LayoutParams(px(38), px(44)))
+            if (selectable) selectionUpdates.add {
+                groupActions.forEach {
+                    it.visibility = if (thinkingBulkSelected.isEmpty()) View.VISIBLE else View.INVISIBLE
+                }
+            }
             groupRow.addView(folder, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(6) })
             folder.setOnClickListener {
                 if (!expandedThinkingGroups.add(group)) expandedThinkingGroups.remove(group)
@@ -6103,6 +6227,17 @@ open class RolePackEditorActivity : AppCompatActivity() {
                     rippleCard(this)
                     setPadding(px(12), px(4), px(6), px(4))
                 }
+                val select = if (selectable) CheckBox(this).apply {
+                    contentDescription = "选择碎碎念"
+                    isChecked = id in thinkingBulkSelected
+                    setOnCheckedChangeListener { _, checked ->
+                        if (!syncingThinkingSelection) toggleThinkingSelection(id, checked)
+                    }
+                } else null
+                if (select != null) {
+                    row.addView(select, LinearLayout.LayoutParams(px(40), px(44)))
+                    selectionUpdates.add { select.isChecked = id in thinkingBulkSelected }
+                }
                 val textContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                 textContainer.addView(text(thinkingBody(id).ifBlank { "无效碎碎念 · 文本为空（点击修复）" }, 14f).apply {
                     if (thinkingBody(id).isBlank()) setTextColor(getColor(R.color.cp_danger))
@@ -6116,6 +6251,10 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 })
                 row.addView(textContainer, LinearLayout.LayoutParams(0, -2, 1f))
                 if (!linkedPreview) row.addView(text("⋮", 23f).apply {
+                    val more = this
+                    if (selectable) selectionUpdates.add {
+                        more.visibility = if (thinkingBulkSelected.isEmpty()) View.VISIBLE else View.INVISIBLE
+                    }
                     gravity = Gravity.CENTER
                     setOnClickListener { view ->
                         UnifiedOptionMenu.show(view, listOf("详情 / 编辑", "选择碎碎念组", "删除"),
@@ -6151,11 +6290,18 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 }, LinearLayout.LayoutParams(px(42), px(42)))
                 if (linkedPreview) {
                     if (!linkedReadOnly) rippleClick(row) { openLinkedThinkingEditor() }
-                } else rippleClick(row) { thinkingDetails(id) }
+                } else rippleClick(row) {
+                    if (selectable && thinkingBulkSelected.isNotEmpty())
+                        toggleThinkingSelection(id, id !in thinkingBulkSelected)
+                    else thinkingDetails(id)
+                }
                 groupRow.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
                     leftMargin = px(12)
                     topMargin = px(4)
                 })
+            }
+            if (selectable) thinkingSelectionRefreshers[group] = {
+                selectionUpdates.forEach { it() }
             }
             if (linkedPreview) target.addView(groupRow)
             else folderRows.add(group to groupRow)
@@ -6451,44 +6597,186 @@ open class RolePackEditorActivity : AppCompatActivity() {
         }
     }
 
+    private fun editBulkThinkingGroups(add: Boolean) {
+        val ids = thinkingBulkSelected.toList().filter { thinkingObject().has(it) }
+        if (ids.isEmpty()) return
+        val memberships = ids.associateWith(::thinkingGroups)
+        val counts = mutableMapOf<String, Int>()
+        memberships.values.forEach { groups ->
+            groups.distinct().forEach { counts[it] = (counts[it] ?: 0) + 1 }
+        }
+        val existing = allThinkingGroups().filter(::validModeGroupName).distinct()
+        val groups = (if (add) existing else (existing + counts.keys)
+            .distinct().filter { (counts[it] ?: 0) > 0 && validModeGroupName(it) }).toMutableList()
+        val selected = linkedSetOf<String>()
+        editor(if (add) "批量增加组" else "批量移除组", compact = true,
+            confirmLabel = "确认", subtitle = "已选择 ${ids.size} 条碎碎念") { box ->
+            val note = if (add) "增加所选组，保留原有所属组。"
+                else "仅移除所选组，不删除碎碎念或解散组。没有所属组的碎碎念将归入未分组。"
+            box.addView(text(note, 12f).apply { setTextColor(getColor(R.color.cp_note)) })
+            val choices = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            fun redraw() {
+                choices.removeAllViews()
+                if (groups.isEmpty()) choices.addView(text(
+                    if (add) "暂无碎碎念组，可在下方新建。" else "选中的碎碎念均未分组。", 12f
+                ).apply { setTextColor(getColor(R.color.cp_note)) })
+                groups.forEach { group ->
+                    val count = counts[group] ?: 0
+                    val enabled = !add || count < ids.size
+                    val row = detailListRow()
+                    val check = CheckBox(this).apply {
+                        isChecked = group in selected
+                        isEnabled = enabled
+                        contentDescription = "$group，$count/${ids.size} 已属于该组"
+                        setOnCheckedChangeListener { _, checked ->
+                            if (checked) selected.add(group) else selected.remove(group)
+                        }
+                    }
+                    row.addView(check, LinearLayout.LayoutParams(px(40), px(44)))
+                    row.addView(text(group, 14f).apply {
+                        if (!enabled) setTextColor(getColor(R.color.cp_note))
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
+                    row.addView(text("$count/${ids.size}", 12f).apply {
+                        setTextColor(getColor(R.color.cp_note))
+                        gravity = Gravity.END
+                    })
+                    if (enabled) row.setOnClickListener { check.isChecked = !check.isChecked }
+                    choices.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(4) })
+                }
+            }
+            box.addView(choices)
+            if (add) addMembershipGroupCreator(box, groups, selected, "碎碎念", ::redraw)
+            redraw()
+            ({
+                if (selected.isNotEmpty()) {
+                    change { json ->
+                        val catalog = json.optJSONArray("thinkingGroups") ?: JSONArray().also {
+                            json.put("thinkingGroups", it)
+                        }
+                        if (add) {
+                            val known = jsonStrings(catalog).toMutableSet()
+                            selected.forEach { group -> if (known.add(group)) catalog.put(group) }
+                        }
+                        val texts = json.getJSONObject("thinkings")
+                        ids.forEach { id ->
+                            val raw = texts.opt(id) ?: return@forEach
+                            val item = raw as? JSONObject ?: JSONObject().put("text", raw as? String ?: "")
+                            val old = jsonStrings(item.optJSONArray("groups"))
+                            val next = if (add) (old + selected).distinct()
+                                else old.filter { it !in selected }
+                            if (old != next) {
+                                item.put("groups", JSONArray().apply { next.forEach { put(it) } })
+                                texts.put(id, item)
+                            }
+                        }
+                    }
+                    thinkingResources()
+                }
+            })
+        }
+    }
+
+    /** Scan references once, not once per selected text. */
+    private fun thinkingReferenceCounts(ids: Set<String>): Map<String, Int> {
+        val counts = mutableMapOf<String, Int>()
+        fun check(node: JSONObject) {
+            val pool = node.optJSONObject("thinking")?.opt("pool")
+            val refs = when (pool) {
+                is JSONObject -> pool.keys().asSequence().toSet()
+                is JSONArray -> (0 until pool.length()).mapNotNull { index ->
+                    val value = pool.opt(index)
+                    if (value is JSONObject) value.optString("id").takeIf { it.isNotBlank() }
+                    else value as? String
+                }.toSet()
+                else -> emptySet()
+            }
+            refs.filter { it in ids }.forEach { counts[it] = (counts[it] ?: 0) + 1 }
+        }
+        fun visit(node: JSONObject) {
+            check(node)
+            node.keys().asSequence().filter { it != "thinking" && it != "modes" }
+                .forEach { node.optJSONObject(it)?.let(::visit) }
+        }
+        root.optJSONObject("functions")?.let(::visit)
+        root.optJSONObject("modes")?.let { modes ->
+            modes.keys().forEach { modes.optJSONObject(it)?.let(::check) }
+        }
+        return counts
+    }
+
+    private fun confirmBulkThinkingDelete() {
+        val ids = thinkingBulkSelected.filter { thinkingObject().has(it) }.toSet()
+        if (ids.isEmpty()) return
+        val counts = thinkingReferenceCounts(ids)
+        val referenced = counts.values.count { it > 0 }
+        val total = counts.values.sum()
+        val body = buildString {
+            append("确认删除选中的 ${ids.size} 条碎碎念？")
+            if (referenced > 0) {
+                append("<br><font color='#")
+                append(String.format("%06X", getColor(R.color.cp_danger) and 0xFFFFFF))
+                append("'>其中 $referenced 条存在引用，共 $total 处引用，删除后将同时取消相关引用。</font>")
+            }
+            append("<br><br>")
+            ids.forEach { id ->
+                val value = android.text.TextUtils.htmlEncode(thinkingBody(id).ifBlank { "无效碎碎念" })
+                val count = counts[id] ?: 0
+                if (count > 0) {
+                    append("<font color='#")
+                    append(String.format("%06X", getColor(R.color.cp_danger) and 0xFFFFFF))
+                    append("'>$value · ${count}次引用</font>")
+                } else append("$value · 未被引用")
+                append("<br>")
+            }
+        }
+        showConfirmDialog(title = "批量删除碎碎念", bodyHtml = body,
+            positiveText = "删除", titleColorRes = R.color.cp_danger) {
+            deleteThinkingIds(ids, clearSelection = true)
+        }
+    }
+
     private fun confirmThinkingDelete(id: String) {
         showConfirmDialog(
             title = "删除碎碎念",
             bodyHtml = "确认删除「" + android.text.TextUtils.htmlEncode(thinkingBody(id)) + "」？",
             positiveText = "删除",
             titleColorRes = R.color.cp_danger
-        ) {
-            attempt {
-                change { json ->
-                    json.getJSONObject("thinkings").remove(id)
-                    fun prune(config: JSONObject?) {
-                        val thinking = config?.optJSONObject("thinking") ?: return
-                        when (val pool = thinking.opt("pool")) {
-                            is JSONObject -> pool.remove(id)
-                            is JSONArray -> {
-                                val kept = JSONArray()
-                                for (index in 0 until pool.length()) {
-                                    val value = pool.opt(index)
-                                    val refId = if (value is JSONObject) value.optString("id")
-                                        else value?.toString()
-                                    if (refId != id) kept.put(value)
-                                }
-                                thinking.put("pool", kept)
+        ) { deleteThinkingIds(setOf(id)) }
+    }
+
+    private fun deleteThinkingIds(ids: Set<String>, clearSelection: Boolean = false) {
+        attempt {
+            change { json ->
+                val texts = json.getJSONObject("thinkings")
+                ids.forEach { texts.remove(it) }
+                fun prune(config: JSONObject?) {
+                    val thinking = config?.optJSONObject("thinking") ?: return
+                    when (val pool = thinking.opt("pool")) {
+                        is JSONObject -> ids.forEach { pool.remove(it) }
+                        is JSONArray -> {
+                            val kept = JSONArray()
+                            for (index in 0 until pool.length()) {
+                                val value = pool.opt(index)
+                                val refId = if (value is JSONObject) value.optString("id")
+                                    else value?.toString()
+                                if (refId !in ids) kept.put(value)
                             }
+                            thinking.put("pool", kept)
                         }
                     }
-                    fun visit(node: JSONObject) {
-                        prune(node)
-                        node.keys().asSequence().toList().filter { it !in setOf("thinking", "modes") }
-                            .forEach { name -> node.optJSONObject(name)?.let(::visit) }
-                    }
-                    json.optJSONObject("functions")?.let(::visit)
-                    json.optJSONObject("modes")?.let { modes ->
-                        modes.keys().forEach { name -> prune(modes.optJSONObject(name)) }
-                    }
                 }
-                thinkingResources()
+                fun visit(node: JSONObject) {
+                    prune(node)
+                    node.keys().asSequence().toList().filter { it !in setOf("thinking", "modes") }
+                        .forEach { name -> node.optJSONObject(name)?.let(::visit) }
+                }
+                json.optJSONObject("functions")?.let(::visit)
+                json.optJSONObject("modes")?.let { modes ->
+                    modes.keys().forEach { name -> prune(modes.optJSONObject(name)) }
+                }
             }
+            if (clearSelection) thinkingBulkSelected.clear() else thinkingBulkSelected.removeAll(ids)
+            thinkingResources()
         }
     }
 
