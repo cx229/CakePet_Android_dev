@@ -149,9 +149,10 @@ class PetService : Service() {
         val roleId: String = ""
     )
     private val fishLayers = mutableListOf<FishLayer>()
-    // 当前正被用户手指拖动的鱼。用于自动觅食吃判定：拖动中不吃(在手上)，放生才可能吃到。
-    // 同一时刻仅一根手指，故单值；不挂在 FishLayer(data class) 上，以免被多处 copy() 重置。
-    private var draggingFish: FishLayer? = null
+    // Stable window identities, independent of FishLayer.copy() and of other fingers.
+    private val heldFish = mutableSetOf<View>()
+    private data class FoodLure(val fish: View, val snapped: Boolean)
+    private val foodLures = mutableMapOf<PetView, FoodLure>()
     // 自动觅食：每只宠物(per-PetView)当前偏好目标食物引用（滞回后的“锁定”）。按角色独立，互不影响。
     // 非硬锁：每帧在本宠物活动范围内重选最近食物，仅当新目标比当前目标近 ≥1×(显示层宽+高) 才换（防墙角锚点抖动横跳）。
     private val forageFoodByView = mutableMapOf<PetView, FishLayer?>()
@@ -244,7 +245,7 @@ class PetService : Service() {
         val st = (v.tag as? FreezeDragState) ?: FreezeDragState().also { v.tag = it }
         when (e.action) {
             MotionEvent.ACTION_DOWN -> {
-                draggingFish = fishLayers.firstOrNull { it.iv === v }   // 记录正被拖动的鱼(供觅食吃判定排除)
+                heldFish.add(v) // DOWN counts even if the finger never moves.
                 st.lastX = e.rawX; st.lastY = e.rawY
                 st.moved = false; st.longPressFired = false; st.feedOverPet = false
                 st.entered = false; st.enterX = 0f; st.enterY = 0f
@@ -304,9 +305,12 @@ class PetService : Service() {
                 true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                draggingFish = null   // 松手/取消：不再处于拖动中，恢复可被吃
+                heldFish.remove(v) // Release only this food, never other fingers.
                 st.pending?.let { mainHandler.removeCallbacks(it) }
                 st.pending = null
+                if (e.action == MotionEvent.ACTION_CANCEL) {
+                    return@OnTouchListener true
+                }
                 if (st.longPressFired && !st.moved) {
                     openFishMenu(v)
                 } else if (st.moved && !st.longPressFired) {
@@ -317,16 +321,17 @@ class PetService : Service() {
                         // 先记录角色：食物属于谁（系数来源）、谁吃下（放大对象），removeFish 后 layer 仍可取字段
                         val foodRoleId = layer.roleId
                         val eatRoleId = inst.roleId
+                        val wasLured = foodLures.remove(inst.view) != null
                         removeFish(layer)
                         // 投喂成功：用鱼首次进入宠物判定区（振动点）相对宠物中心的左右决定镜像；
                         // 未记录到进入点（理论不会，因投喂必经 MOVE 进入）则用松手点兜底。
-                        val ix = if (st.entered) st.enterX else e.rawX
-                        val iy = if (st.entered) st.enterY else e.rawY
+                        val ix = layer.lp.x + layer.lp.width / 2f
+                        val iy = layer.lp.y + layer.lp.height / 2f
                         val dlp = inst.displayLp
                         val (relX, relY) = if (dlp != null) {
                             (ix - (dlp.x + dlp.width / 2f)) to (iy - (dlp.y + dlp.height / 2f))
                         } else (0f to 0f)
-                        triggerFeedAction(inst, relX, relY)
+                        triggerFeedAction(inst, relX, relY, wasLured)
                         // 谁吃谁变大；倍率/开关取决于【被吃食物】的角色（吃什么用什么倍率）
                         growPetOnFeed(eatRoleId, foodRoleId)
                     }
@@ -786,7 +791,7 @@ class PetService : Service() {
                 val fcy = locked.lp.y + locked.lp.height / 2f
                 // 吃到判定：复用正常投喂的「显示层边界命中」逻辑（与拖鱼投喂同一套 findPetAt），
                 // 不再自写 50px 中心距；宠物显示层矩形覆盖到食物中心即视为吃到，方向/投食动作/变大均走正常链路。
-                val eaten = findPetAt(fcx, fcy) == inst && locked !== draggingFish
+                val eaten = findPetAt(fcx, fcy) == inst && locked.iv !in heldFish
                 if (eaten) {
                     // 吃到：正常投喂+变大，移除食物，解除锁定 → 下一帧继续选池（可能有下一个食物）。
                     removeFish(locked)
@@ -799,6 +804,7 @@ class PetService : Service() {
                     v.setForage(true, fcx, fcy)
                 }
             }
+            updateFoodLures()
             // 动画推进：用真实 dt（时延精确），绝不控制位置。每实例独立。
             for (inst in pets) inst.view.tick(dt)
             tickFishModes(dtMs)
@@ -1221,6 +1227,8 @@ class PetService : Service() {
         }
             if (inst.controlAdded) try { windowManager.removeView(inst.view) } catch (_: Exception) {}
             try { inst.petMsg.destroy() } catch (_: Exception) {}
+            foodLures.remove(inst.view)
+            forageFoodByView.remove(inst.view)
             pets.remove(inst)
         }
         // 少补：该角色末尾追加新实例，index 用真实 rolePets.size（createPetInstance 依 index 做水平错开）。
@@ -1506,14 +1514,63 @@ class PetService : Service() {
     }
 
     // 与 fishDroppedOnPet 同判定，但返回命中的宠物实例（用于对其单独播放投食动作 + 读其朝向算镜像）。
-    private fun findPetAt(rawX: Float, rawY: Float): PetInstance? {
-        for (inst in pets) {
-            val dlp = inst.displayLp ?: continue
-            if (!inst.displayAdded) continue
-            val lx = dlp.x; val ly = dlp.y; val lw = dlp.width; val lh = dlp.height
-            if (rawX in lx.toFloat()..(lx + lw).toFloat() && rawY in ly.toFloat()..(ly + lh).toFloat()) return inst
+    private fun findPetAt(rawX: Float, rawY: Float): PetInstance? =
+        pets.asSequence().filter { inst ->
+            val lp = inst.displayLp ?: return@filter false
+            inst.displayAdded && rawX in lp.x.toFloat()..(lp.x + lp.width).toFloat() &&
+                rawY in lp.y.toFloat()..(lp.y + lp.height).toFloat()
+        }.minByOrNull { inst ->
+            val lp = requireNotNull(inst.displayLp)
+            val dx = rawX - (lp.x + lp.width / 2f)
+            val dy = rawY - (lp.y + lp.height / 2f)
+            dx * dx + dy * dy
         }
-        return null
+
+    /** Per-pet interaction, independent of clip lifetime and pointer movement. */
+    private fun updateFoodLures() {
+        if (heldFish.isEmpty() && foodLures.isEmpty()) return
+        val held = fishLayers.filter { it.iv in heldFish }
+        for (inst in pets) {
+            val view = inst.view
+            val old = foodLures[view]
+            val lp = inst.displayLp
+            val snapped = view.physics.isSnapped
+            val automatic = view.wallClimb && view.autoForage && !view.useStaticPool
+            val eligible = inst.displayAdded && lp != null && !view.physics.isDragging &&
+                !view.physics.isThrowing && !view.flying &&
+                (snapped || !automatic)
+            if (!eligible || lp == null) {
+                if (old != null) {
+                    foodLures.remove(view)
+                    view.endFoodLure()
+                }
+                continue
+            }
+            val cx = lp.x + lp.width / 2f
+            val cy = lp.y + lp.height / 2f
+            val target = held.minByOrNull { fish ->
+                val dx = fish.lp.x + fish.lp.width / 2f - cx
+                val dy = fish.lp.y + fish.lp.height / 2f - cy
+                dx * dx + dy * dy
+            }
+            if (target == null) {
+                if (old != null) {
+                    foodLures.remove(view)
+                    if (old.snapped == snapped) view.finishFoodLure(snapped)
+                    else view.endFoodLure()
+                }
+                continue
+            }
+            if (old == null || old.snapped != snapped) {
+                if (old != null) view.endFoodLure()
+                // Do not interrupt a successful eat or unrelated forced interaction.
+                if (!view.canStartFoodLure()) continue
+                view.startFoodLure(snapped)
+            }
+            foodLures[view] = FoodLure(target.iv, snapped)
+            faceFood(view, target.lp.x + target.lp.width / 2f - cx,
+                target.lp.y + target.lp.height / 2f - cy)
+        }
     }
 
     // 本地 +x（资源朝右）经重力旋转映射到屏幕的前向向量 Fg（脚朝向决定）：
@@ -1538,16 +1595,25 @@ class PetService : Service() {
      * Rg 由 Fg 旋转得到，故脚朝左/右/上时自动按宠物自身左右适配。死区内沿用当前朝向。
      * 投食结束【不还原】镜像，下一动作沿用该朝向。
      */
-    private fun triggerFeedAction(inst: PetInstance?, relX: Float, relY: Float) {
+    private fun triggerFeedAction(inst: PetInstance?, relX: Float, relY: Float, wasLured: Boolean = false) {
         if (inst == null) return
         val view = inst.view
         // 投食动作由素材包 functions 提供（v1.01）：吸附态走 [snap, feed, eat]，待机态走 [feed, eat]。
         // 两者末段同为 eat 但路径不同，故必须按完整路径寻址；包未提供则跳过投食动作。
         val name = when {
             view.physics.isSnapped -> view.modeOf("snap", "feed", "eat")
-            view.isStandbyMode() -> view.modeOf("feed", "eat")
+            view.isStandbyMode() || wasLured || view.isFoodLureAnimation() -> view.modeOf("feed", "eat")
             else -> null
-        } ?: return
+        }
+        if (name == null) {
+            if (wasLured) view.endFoodLure()
+            return
+        }
+        faceFood(view, relX, relY)
+        view.playOnce(name)
+    }
+
+    private fun faceFood(view: PetView, relX: Float, relY: Float) {
         // 脚前向 Fg（屏幕向量）：非吸附用 gravityDir 映射，吸附用 snapRotation。
         // 镜像目标：让宠物"面朝鱼"。鱼在 Fg 反方向（D·Fg<0，鱼在宠物身后）则镜像。
         // 上/左/右朝向由 Fg 自身适配，无需额外旋转轴。
@@ -1561,7 +1627,6 @@ class PetService : Service() {
             if (view.physics.isSnapped) view.getSnapFlipX() else view.flipX
         } else proj > 0f
         if (view.physics.isSnapped) view.setSnapFlipX(flip) else view.flipX = flip
-        view.playOnce(name)
     }
 
     /**
@@ -1624,7 +1689,8 @@ class PetService : Service() {
             format = PixelFormat.TRANSLUCENT
             flags = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_SPLIT_TOUCH
             gravity = Gravity.TOP or Gravity.START
             width = wpx
             height = hpx
@@ -1692,7 +1758,8 @@ class PetService : Service() {
         cur.borderView?.let { try { windowManager.removeViewImmediate(it) } catch (_: Exception) {} }
         fishLayers.removeAt(idx)
         imeFishOffsets.remove(cur.iv)
-        if (draggingFish?.iv === cur.iv) draggingFish = null
+        heldFish.remove(cur.iv)
+        (cur.iv.tag as? FreezeDragState)?.pending?.let { mainHandler.removeCallbacks(it) }
         // A removed fish must not remain the forage target of any surviving pet.
         forageFoodByView.entries.removeAll { it.value?.iv === cur.iv }
     }
@@ -4109,6 +4176,7 @@ class PetService : Service() {
             }
             imePetOffsets.remove(inst.view)
             forageFoodByView.remove(inst.view)
+            foodLures.remove(inst.view)
         }
         pets.removeAll(removed)
         engines.remove(roleId)
@@ -4289,6 +4357,8 @@ class PetService : Service() {
             try { inst.petMsg.destroy() } catch (_: Exception) {}
         }
         pets.clear()
+        foodLures.clear()
+        heldFish.clear()
         // 移除独立 guide 辅助线窗（若有）
         try { if (guideAdded && guideLineView != null) windowManager.removeView(guideLineView) } catch (_: Exception) {}
         guideAdded = false

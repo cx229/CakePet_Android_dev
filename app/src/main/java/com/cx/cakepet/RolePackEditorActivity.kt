@@ -4471,6 +4471,8 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 "move" -> "移动"
                 "snap_head" -> "探头"
                 "eat" -> "吃"
+                "lure" -> "吸引"
+                "lure_fail" -> "吸引落空"
                 "food" -> "食物"
                 else -> path.last()
             }
@@ -4499,6 +4501,10 @@ open class RolePackEditorActivity : AppCompatActivity() {
         "climb/forage/move" -> "角色奔向食物时播放的动画"
         "pat_head/pat_head" -> "正常状态下摸头互动时播放"
         "feed/eat" -> "角色接受投喂并进食时播放"
+        "feed/lure" -> "角色不自动觅食时，被玩家手持食物吸引时播放"
+        "feed/lure_fail" -> "角色被吸引后没有吃到食物时播放"
+        "snap/feed/lure" -> "角色吸附时，被玩家手持食物吸引时播放"
+        "snap/feed/lure_fail" -> "角色吸附时被吸引后没有吃到食物时播放"
         "feed/food" -> "投喂时显示的食物动画"
         "menu/pool" -> "在长按菜单中手动选择播放的动画"
         "menu/summoned" -> "召唤到桌面后，首页角色预览播放的动画"
@@ -4538,7 +4544,8 @@ open class RolePackEditorActivity : AppCompatActivity() {
         val priority = when (parent.joinToString("/")) {
             "" -> functionFolderOrder
             "touch" -> listOf("lift_up", "roll", "jump_down")
-            "feed" -> listOf("food", "eat")
+            "feed" -> listOf("food", "eat", "lure", "lure_fail")
+            "snap/feed" -> listOf("eat", "lure", "lure_fail")
             "standby" -> listOf("pool", "static_pool")
             "snap" -> listOf("snap_head", "pool", "pat_head", "feed")
             else -> emptyList()

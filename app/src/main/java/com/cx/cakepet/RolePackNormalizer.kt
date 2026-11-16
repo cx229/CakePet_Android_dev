@@ -21,6 +21,10 @@ internal object RolePackNormalizer {
             listOf("climb", "leap", "leap"),
             listOf("climb", "leap", "landing"),
             listOf("climb", "forage", "move"),
+            listOf("feed", "lure"),
+            listOf("feed", "lure_fail"),
+            listOf("snap", "feed", "lure"),
+            listOf("snap", "feed", "lure_fail"),
             MaterialFunctionSupport.SUMMONED,
             MaterialFunctionSupport.PREVIEW
         )

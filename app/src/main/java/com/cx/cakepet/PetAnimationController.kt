@@ -52,6 +52,19 @@ class PetAnimationController(private val assets: ImageModeManager) {
     fun getMode(): String = clip?.currentModeId ?: ""
     fun isPlayingForced(): Boolean = forced
     fun executingSnapFunction(): Boolean = currentFunctionPath.firstOrNull() == "snap"
+    fun executingFoodLure(): Boolean = currentFunctionPath == listOf("feed", "lure") ||
+        currentFunctionPath == listOf("snap", "feed", "lure")
+    fun executingFoodLureFailure(): Boolean = currentFunctionPath == listOf("feed", "lure_fail") ||
+        currentFunctionPath == listOf("snap", "feed", "lure_fail")
+    fun endFoodLure() {
+        if (!executingFoodLure()) return
+        forced = false
+        forcedReturn = null
+        forcedStart = null
+        // State-owned snap pool wins; otherwise choose the configured standby pool.
+        val next = activeStateMode() ?: selectInitialStandby()
+        next?.let { setMode(it) }
+    }
     /** Frame impulse is consumed once for initial frame, every advance and loop wrap. */
     fun consumeFrameDisplacement(): Pair<Int, Int>? {
         if (!frameMotionPending) return null

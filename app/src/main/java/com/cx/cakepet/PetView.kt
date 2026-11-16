@@ -1453,6 +1453,20 @@ class PetView @JvmOverloads constructor(
 
     /** 当前模式是否处于待机动作清单（供投喂判断是否切"坐姿投食"）。 */
     fun isStandbyMode(): Boolean = imageManager.isStandbyMode()
+    fun isFoodLureAnimation(): Boolean = imageManager.executingFoodLure()
+    fun canStartFoodLure(): Boolean = !imageManager.isPlayingForced() ||
+        imageManager.executingFoodLure() || imageManager.executingFoodLureFailure()
+    fun startFoodLure(snapped: Boolean) {
+        val path = if (snapped) listOf("snap", "feed", "lure") else listOf("feed", "lure")
+        modeOf(*path.toTypedArray())?.let { playOnce(it, path) }
+    }
+    fun endFoodLure() = imageManager.endFoodLure()
+    fun finishFoodLure(snapped: Boolean) {
+        val path = if (snapped) listOf("snap", "feed", "lure_fail") else listOf("feed", "lure_fail")
+        val mode = modeOf(*path.toTypedArray())
+        if (mode != null && canStartFoodLure()) playOnce(mode, path)
+        else endFoodLure()
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val (w, h) = getBitmapSize()

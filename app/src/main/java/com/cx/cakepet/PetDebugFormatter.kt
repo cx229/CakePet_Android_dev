@@ -39,7 +39,7 @@ internal object PetDebugFormatter {
                 "pat_head/pat_head", "snap/pat_head/pat_head" -> "摸头"
                 else -> when(k) {
                     "standby" -> "待机"; "snap" -> "吸附"; "snap_head" -> "探头"
-                    "pat_head" -> "摸摸头"; "feed" -> "投食"; "eat" -> "吃"
+                    "pat_head" -> "摸摸头"; "feed" -> "投食"; "eat" -> "吃"; "lure" -> "吸引"; "lure_fail" -> "吸引落空"
                     "touch" -> "抛掷"; "roll" -> "滚动"; "lift_up" -> "提起"
                     "slow" -> "慢速"; "left_medium" -> "左中速"; "left_fast" -> "左快速"
                     "right_medium" -> "右中速"; "right_fast" -> "右快速"; "jump_down" -> "落地"

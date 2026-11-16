@@ -374,6 +374,8 @@
         }
       },
       "feed": {
+        "lure": {"modes": ["吸引-探头"]},
+        "lure_fail": {"modes": ["吸引落空-探头"]},
         "eat": {
           "modes": ["投食-探头"],
           "thinking": {
@@ -481,6 +483,8 @@
       }
     },
     "feed": {
+      "lure": {"modes": ["吸引"]},
+      "lure_fail": {"modes": ["吸引落空"]},
       "note": "普通投喂动作入口，food 是食物显示动画，eat 是角色投食反馈。",
       "food": {
         "modes": ["食物"],
@@ -872,6 +876,326 @@
       "frames": [
         {"res": "外出\/out-1.png", "delay": 120}
       ]
+    },
+    "吸引": {
+      "note": "临时复用「投食」的图片资源，后续可独立替换。",
+      "loopMode": "off",
+      "loop": false,
+      "nextMode": null,
+      "groups": [
+        "投喂"
+      ],
+      "frames": [
+        {
+          "res": "投食/feed_fish-1.png",
+          "delay": [
+            90,
+            100
+          ],
+          "verticalAlign": "top"
+        },
+        {
+          "res": "投食/feed_fish-2.png",
+          "delay": [
+            90,
+            100
+          ],
+          "verticalAlign": "top"
+        },
+        {
+          "res": "投食/feed_fish-3.png",
+          "delay": [
+            90,
+            100
+          ],
+          "verticalAlign": "top"
+        },
+        {
+          "res": "投食/feed_fish-4.png",
+          "delay": [
+            90,
+            100
+          ],
+          "verticalAlign": "top"
+        },
+        {
+          "res": "投食/feed_fish-3.png",
+          "delay": [
+            90,
+            100
+          ],
+          "verticalAlign": "top"
+        },
+        {
+          "res": "投食/feed_fish-3.png",
+          "delay": [
+            90,
+            100
+          ],
+          "verticalAlign": "top"
+        }
+      ]
+    },
+    "吸引-探头": {
+      "note": "临时复用「投食-探头」的图片资源，后续可独立替换。",
+      "loopMode": "off",
+      "loop": false,
+      "nextMode": null,
+      "groups": [
+        "探头",
+        "投喂"
+      ],
+      "frames": [
+        {
+          "res": "探头投食/feed_fish-1.png",
+          "delay": [
+            90,
+            100
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "探头投食/feed_fish-2.png",
+          "delay": [
+            90,
+            100
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "探头投食/feed_fish-3.png",
+          "delay": [
+            90,
+            100
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "探头投食/feed_fish-4.png",
+          "delay": [
+            90,
+            100
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "探头投食/feed_fish-3.png",
+          "delay": [
+            90,
+            100
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "探头投食/feed_fish-3.png",
+          "delay": [
+            90,
+            100
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        }
+      ]
+    },
+    "吸引落空": {
+      "loopMode": "timed",
+      "loop": true,
+      "duration": {
+        "min": 1000,
+        "max": 5000
+      },
+      "finishCycle": true,
+      "nextMode": null,
+      "groups": [
+        "投喂"
+      ],
+      "thinking": {
+        "policy": "hold",
+        "pool": {
+          "t003": {
+            "min": 500,
+            "max": 4000
+          },
+          "t014": {
+            "min": 500,
+            "max": 4000
+          },
+          "t017": {
+            "min": 500,
+            "max": 4000
+          },
+          "t023": {
+            "min": 500,
+            "max": 4000
+          },
+          "t029": {
+            "min": 500,
+            "max": 4000
+          },
+          "t030": {
+            "min": 500,
+            "max": 4000
+          },
+          "t033": {
+            "min": 500,
+            "max": 4000
+          }
+        }
+      },
+      "frames": [
+        {
+          "res": "思考/sit_thinking-1.png",
+          "delay": [
+            60,
+            70
+          ]
+        },
+        {
+          "res": "思考/sit_thinking-2.png",
+          "delay": [
+            60,
+            70
+          ]
+        },
+        {
+          "res": "思考/sit_thinking-3.png",
+          "delay": [
+            60,
+            70
+          ]
+        },
+        {
+          "res": "思考/sit_thinking-4.png",
+          "delay": [
+            60,
+            70
+          ]
+        },
+        {
+          "res": "思考/sit_thinking-5.png",
+          "delay": [
+            60,
+            70
+          ]
+        },
+        {
+          "res": "思考/sit_thinking-6.png",
+          "delay": [
+            60,
+            70
+          ]
+        }
+      ],
+      "note": "临时复用「宕机」的图片资源，后续可独立替换。"
+    },
+    "吸引落空-探头": {
+      "loopMode": "timed",
+      "loop": true,
+      "duration": {
+        "min": 1000,
+        "max": 5000
+      },
+      "finishCycle": true,
+      "nextMode": null,
+      "groups": [
+        "探头",
+        "投喂"
+      ],
+      "thinking": {
+        "policy": "hold",
+        "pool": {
+          "t003": {
+            "min": 500,
+            "max": 4000
+          },
+          "t014": {
+            "min": 500,
+            "max": 4000
+          },
+          "t017": {
+            "min": 500,
+            "max": 4000
+          },
+          "t023": {
+            "min": 500,
+            "max": 4000
+          },
+          "t029": {
+            "min": 500,
+            "max": 4000
+          },
+          "t030": {
+            "min": 500,
+            "max": 4000
+          },
+          "t033": {
+            "min": 500,
+            "max": 4000
+          }
+        }
+      },
+      "frames": [
+        {
+          "res": "思考/sit_thinking-1.png",
+          "delay": [
+            60,
+            70
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "思考/sit_thinking-2.png",
+          "delay": [
+            60,
+            70
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "思考/sit_thinking-3.png",
+          "delay": [
+            60,
+            70
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "思考/sit_thinking-4.png",
+          "delay": [
+            60,
+            70
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "思考/sit_thinking-5.png",
+          "delay": [
+            60,
+            70
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        },
+        {
+          "res": "思考/sit_thinking-6.png",
+          "delay": [
+            60,
+            70
+          ],
+          "anchorY": 11,
+          "verticalAlign": "top"
+        }
+      ],
+      "note": "临时复用「宕机」的图片资源，后续可独立替换。"
     },
     "宕机": {
       "loopMode": "timed",
