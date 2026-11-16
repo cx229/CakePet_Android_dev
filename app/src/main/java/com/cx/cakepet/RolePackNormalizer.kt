@@ -59,6 +59,23 @@ internal object RolePackNormalizer {
         return true
     }
 
+    /** Preserve the effective playback policy and non-null inactive settings.
+     * Legacy loop and explicit nulls are not part of newly saved v1.12 manifests.
+     */
+    fun normalizePlaybackFields(root: JSONObject) {
+        val modes = root.optJSONObject("modes") ?: return
+        for (id in modes.keys().asSequence().toList()) {
+            val mode = modes.optJSONObject(id) ?: continue
+            if (mode.has("loop")) {
+                mode.put("loopMode", RolePackageContract.playbackMode(mode))
+                mode.remove("loop")
+            }
+            for (key in listOf("duration", "nextMode")) {
+                if (mode.has(key) && mode.isNull(key)) mode.remove(key)
+            }
+        }
+    }
+
     private fun kind(value: Any?): String = when (value) {
         null, JSONObject.NULL -> "null"
         is JSONObject -> "Object"
@@ -120,6 +137,7 @@ internal object RolePackNormalizer {
                 raw.put("frames", JSONArray())
             }
         }
+        normalizePlaybackFields(root)
         if (completeLegacySnapPool(root)) issues += Issue("已补全", "functions/snap/pool", "沿用原探头功能映射及碎碎念，未修改动画")
         val functions = root.getJSONObject("functions")
         // Normalize every declared function path, including ones missing from incoming JSON.

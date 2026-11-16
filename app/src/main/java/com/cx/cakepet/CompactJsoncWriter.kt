@@ -39,7 +39,7 @@ internal object CompactJsoncWriter {
                 path.isEmpty() -> listOf("version","id","name","shortName","authors",
                     "decodeTarget","anchorRes","note","usage","functions","modeGroups","modes","thinkingGroups","thinkings","resourceOrder")
                 path.size == 2 && path[0] == "modes" -> listOf("note","usage","loopMode",
-                    "loop","duration","finishCycle","nextMode","groups","thinking","frames")
+                    "duration","finishCycle","nextMode","groups","thinking","frames")
                 else -> listOf("note","usage")
             }
             return preferred.filter { it in keys } + keys.filter { it !in preferred }

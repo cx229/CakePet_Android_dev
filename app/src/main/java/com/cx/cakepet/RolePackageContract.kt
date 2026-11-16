@@ -88,7 +88,8 @@ object RolePackageContract {
         return ValidationResult(errors.isEmpty(), json.optString("version"), errors)
     }
 
-    private fun playbackMode(mode: JSONObject): String {
+    /** Canonical loopMode wins; old loop is only a read-time migration fallback. */
+    internal fun playbackMode(mode: JSONObject): String {
         val explicit = mode.optString("loopMode")
         if (explicit in listOf("off", "timed", "infinite")) return explicit
         return when {

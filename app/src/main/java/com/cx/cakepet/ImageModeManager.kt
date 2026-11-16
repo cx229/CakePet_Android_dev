@@ -32,9 +32,6 @@ data class SpritePack(
     // 键为【功能路径】（如 [climb, move]、[snap, pat_head, pat_head]），层数不限；
     // 值为候选列表（当前多为单元素，为将来"同一功能多个动作"预留）。
     val functions: Map<List<String>, List<String>> = emptyMap(),
-    // 模式名 → 是否循环（modes 里每项的 loop）。循环类（走/蠕动等）须用 setMode 常驻，
-    // 一次性类用 playOnce；由素材包声明，代码不写死哪些动作该常驻。
-    val modeLoops: Map<String, Boolean> = emptyMap(),
     val thinking: PackThinking = PackThinking(),
     val version: String = ""
 )
@@ -43,7 +40,7 @@ data class SpritePack(
 /**
  * 动画模式管理：每帧时延严格对齐 PC（image_modes.py）。
  * - 每个模式有帧序列 + 与帧一一对应的时延列表（可为固定值或随机区间）。
- * - 帧序列按 next 链循环（loop=true）或在最后一帧结束后切到指定下一模式（一次性动画）。
+ * - 帧序列按 loopMode 播放；动画结束后由 nextMode 或调用方决定后续。
  * - timeNext 到期且未指定 nextMode 时，只向调用方报告事件，不自行选择其他动作。
  */
 class ImageModeManager(
@@ -83,13 +80,14 @@ class ImageModeManager(
     private data class ImageModeDef(
         val name: String,
         val frames: List<Frame>,
-        val loop: Boolean,              // kept for callers consuming the existing modeLoops metadata
         val loopMode: String = "off",    // off / timed / infinite: independent of stored duration
         val durationMin: Long? = null,
         val durationMax: Long? = null,
         val finishCycle: Boolean = true,
         val nextModeName: String? = null
-    )
+    ) {
+        val loop: Boolean get() = loopMode != "off"
+    }
 
     private fun rnd(min: Long, max: Long): () -> Long = { Random.nextLong(min, max + 1) }
     private fun fixed(v: Long): () -> Long = { v }
@@ -208,13 +206,7 @@ class ImageModeManager(
             try {
                 val m = modesObj.getJSONObject(name)
                 val duration = m.optJSONObject("duration")
-                val configuredKind = m.optString("loopMode")
-                val loopMode = if (configuredKind in listOf("off", "timed", "infinite")) configuredKind else when {
-                    !m.optBoolean("loop", false) -> "off"
-                    duration != null -> "timed"
-                    else -> "infinite"
-                }
-                val loop = loopMode != "off"
+                val loopMode = RolePackageContract.playbackMode(m)
                 // Inactive settings remain on disk and must not control runtime playback.
                 val durationMin = if (loopMode == "timed") duration?.optLong("min") else null
                 val durationMax = if (loopMode == "timed") duration?.optLong("max") else null
@@ -234,7 +226,7 @@ class ImageModeManager(
                     frames.add(Frame(res, delay, anchorX, anchorY, dx, dy, align,
                         f.optString("transform", "none")))
                 }
-                if (frames.isNotEmpty()) registerMode(ImageModeDef(name, frames, loop, loopMode, durationMin,
+                if (frames.isNotEmpty()) registerMode(ImageModeDef(name, frames, loopMode, durationMin,
                     durationMax, finishCycle, nextModeName))
             } catch (e: Exception) {
                 Log.w("ImageModeManager", "跳过不可播放的可选动作: $name", e)

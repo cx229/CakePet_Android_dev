@@ -498,10 +498,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
             }
             route.add(current)
             val mode = modes.optJSONObject(current) ?: break
-            val configured = mode.optString("loopMode")
-            val kind = if (configured in listOf("off", "timed", "infinite")) configured
-                else if (!mode.optBoolean("loop", false)) "off"
-                else if (mode.optJSONObject("duration") != null) "timed" else "infinite"
+            val kind = RolePackageContract.playbackMode(mode)
             if (kind == "infinite") {
                 route.add("∞")
                 break
@@ -2370,10 +2367,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 }.orEmpty()
                 change { json ->
                     json.getJSONObject("modes").put(name, JSONObject()
-                        .put("loop", false)
                         .put("loopMode", "off")
-                        .put("nextMode", JSONObject.NULL)
-                        .put("duration", JSONObject.NULL).put("finishCycle", true)
                         .put("groups", JSONArray().apply { if (group != null) put(group) })
                         .put("frames", JSONArray().put(JSONObject().put("res", source).put("delay", 120))))
                 }
@@ -2608,8 +2602,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
                 change { json ->
                     val mode = json.getJSONObject("modes").getJSONObject(key)
                     mode.put("loopMode", kind)
-                    mode.put("loop", kind != "off")
-                    mode.put("nextMode", if (nextModeId.isEmpty()) JSONObject.NULL else nextModeId)
+                    if (nextModeId.isEmpty()) mode.remove("nextMode") else mode.put("nextMode", nextModeId)
                     if (newDuration != null) {
                         mode.put("duration", newDuration)
                         mode.put("finishCycle", finish.isChecked)
@@ -3222,15 +3215,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
         animation = null
     }
     /** The active loop policy is independent of stored inactive timer settings. */
-    private fun playbackKind(mode: JSONObject): String {
-        val explicit = mode.optString("loopMode")
-        if (explicit in listOf("off", "timed", "infinite")) return explicit
-        return when {
-            !mode.optBoolean("loop", false) -> "off"
-            mode.optJSONObject("duration") != null -> "timed"
-            else -> "infinite"
-        }
-    }
+    private fun playbackKind(mode: JSONObject): String = RolePackageContract.playbackMode(mode)
 
     private fun playbackSummary(mode: JSONObject): String {
         val duration = mode.optJSONObject("duration")
@@ -3366,8 +3351,7 @@ open class RolePackEditorActivity : AppCompatActivity() {
                     val modes = json.getJSONObject("modes")
                     val m = modes.getJSONObject(key)
                     m.put("loopMode", loopMode)
-                    m.put("loop", loopMode != "off")
-                    m.put("nextMode", if (target.isEmpty()) JSONObject.NULL else target)
+                    if (target.isEmpty()) m.remove("nextMode") else m.put("nextMode", target)
                     if (duration != null) m.put("duration", duration)
                     if (loopMode == "timed") m.put("finishCycle", finish.isChecked)
                     if (renamed != key) {

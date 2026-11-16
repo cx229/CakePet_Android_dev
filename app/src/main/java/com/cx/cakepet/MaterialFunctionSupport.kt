@@ -52,10 +52,7 @@ internal object MaterialFunctionSupport {
                     }
                 }
                 if (!valid) break
-                val loop = mode?.optString("loopMode")
-                val infinite = loop == "infinite" || (loop !in listOf("off", "timed") &&
-                    mode?.optBoolean("loop", false) == true && mode.optJSONObject("duration") == null)
-                if (infinite) break
+                if (mode != null && RolePackageContract.playbackMode(mode) == "infinite") break
                 current = mode?.optString("nextMode")?.takeIf { it.isNotBlank() && it != "null" }
             }
             valid

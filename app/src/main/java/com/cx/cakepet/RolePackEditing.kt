@@ -168,6 +168,7 @@ object RolePackEditing {
     /** Only the JSONC manifest is saved. AtomicFile retains the old manifest on failure. */
     fun commit(ctx: Context, id: String, directory: File, json: JSONObject, resourcesChanged: Boolean = false) {
         require(json.optString("id") == id) { "角色 ID 不可变更" }
+        RolePackNormalizer.normalizePlaybackFields(json)
         RolePackNormalizer.syncOrders(json, directory)
         cleanPackReferences(json)
         val configFile = File(directory, "modes.jsonc")

@@ -57,8 +57,7 @@ fun loadPackMeta(ctx: android.content.Context, base: String, source: RoleSource)
         name = if (root.has("name")) root.optString("name", "") else "",
         shortName = if (root.has("shortName")) root.optString("shortName", "") else "",
         functions = parseFunctions(root),
-        thinking = PackThinking.parse(root),
-        modeLoops = parseModeLoops(root)
+        thinking = PackThinking.parse(root)
     )
 }
 
@@ -102,23 +101,6 @@ fun parseFunctions(root: JSONObject): Map<List<String>, List<String>> {
         }
     }
     visit(obj, emptyList())
-    return out
-}
-
-/**
- * 解析各模式是否循环（modes 里每项的 loop）。
- * 长期播放的动画由循环策略控制；一次性播放由动作生命周期控制。
- * 由素材包声明，代码里不写死"哪些动作该常驻"。
- */
-private fun parseModeLoops(root: JSONObject): Map<String, Boolean> {
-    val modes = root.optJSONObject("modes") ?: return emptyMap()
-    val out = LinkedHashMap<String, Boolean>()
-    val kit = modes.keys()
-    while (kit.hasNext()) {
-        val name = kit.next()
-        val obj = modes.optJSONObject(name) ?: continue
-        if (obj.has("loop")) out[name] = obj.optBoolean("loop", false)
-    }
     return out
 }
 
