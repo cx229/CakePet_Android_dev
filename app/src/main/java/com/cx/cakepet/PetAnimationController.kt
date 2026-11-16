@@ -52,18 +52,38 @@ class PetAnimationController(private val assets: ImageModeManager) {
     fun getMode(): String = clip?.currentModeId ?: ""
     fun isPlayingForced(): Boolean = forced
     fun executingSnapFunction(): Boolean = currentFunctionPath.firstOrNull() == "snap"
+    fun executingFunction(path: List<String>): Boolean = currentFunctionPath == path
+    fun executingDragFunction(): Boolean = currentFunctionPath.take(2) == listOf("touch", "lift_up")
+    fun executingStandbyFunction(): Boolean = currentFunctionPath.firstOrNull() == "standby"
+    fun executingForage(): Boolean = currentFunctionPath == listOf("climb", "forage", "move")
+
+    /** A validated state entry is an unconditional takeover, even during an event. */
+    fun enterStateFunction(path: List<String>): Boolean {
+        val next = modeOf(*path.toTypedArray()) ?: return false
+        forced = false
+        forcedReturn = null
+        forcedStart = null
+        activeStateFunction = path
+        setMode(next)
+        return true
+    }
+
+    /** State exit is not an event. Select from the current environment, not the old clip. */
+    fun resumeState(path: List<String>?) {
+        activeStateFunction = path
+        forced = false
+        forcedReturn = null
+        forcedStart = null
+        val next = activeStateMode() ?: selectInitialStandby()
+        next?.let { setMode(it) }
+    }
     fun executingFoodLure(): Boolean = currentFunctionPath == listOf("feed", "lure") ||
         currentFunctionPath == listOf("snap", "feed", "lure")
     fun executingFoodLureFailure(): Boolean = currentFunctionPath == listOf("feed", "lure_fail") ||
         currentFunctionPath == listOf("snap", "feed", "lure_fail")
     fun startFoodLure(path: List<String>): Boolean {
-        val next = modeOf(*path.toTypedArray()) ?: return false
-        forced = false
-        forcedReturn = null
-        forcedStart = null
+        if (!enterStateFunction(path)) return false
         forageSelected = false
-        activeStateFunction = path
-        setMode(next)
         return true
     }
 
@@ -127,16 +147,18 @@ class PetAnimationController(private val assets: ImageModeManager) {
     fun pickStandbyMode(exclude: String): String {
         // Only this natural completion boundary may initiate automatic behaviors.
         forageSelected = false
-        if (forageActive) modeOf("climb", "forage", "move")?.let {
+        if (forageActive && !useStaticPool && !inSnapped && !isFlying) modeOf("climb", "forage", "move")?.let {
             forageSelected = true
             return it
         }
         // Behavior decisions (e.g. whether to leap) belong to PetView, not Modes.
         onAutomaticModeChoice?.invoke()?.let { return it }
-        val pool = currentPool().filter { it != exclude }
-        val selected = if (pool.isNotEmpty()) pool.random() else getMode()
-        // Random facing is a standby behavior, not a privilege of any Mode/Functions name.
-        pendingFunctionForMode[selected] = standbyPath()
+        val all = currentPool()
+        val pool = all.filter { it != exclude }
+        val selected = pool.randomOrNull() ?: all.randomOrNull()
+            ?: selectInitialStandby() ?: getMode()
+        // A single-candidate pool must not accidentally replay the previous event.
+        if (all.isNotEmpty()) pendingFunctionForMode[selected] = standbyPath()
         if (assets.createClip(selected)?.hasFrameMotion == true) onStandbyMotionChosen?.invoke()
         return selected
     }
@@ -146,24 +168,13 @@ class PetAnimationController(private val assets: ImageModeManager) {
      * considered finished. State-owned functions still take priority.
      */
     fun tryRestartForageFromNormalChoice(): Boolean {
-        val foragePath = listOf("climb", "forage", "move")
-        if (!forageActive || useStaticPool) return false
-        if (activeStateFunction != null && activeStateFunction != foragePath) return false
-        // A missing optional function cannot be chosen by normal selection.
-        if (assets.leavesOf(*foragePath.toTypedArray()).isEmpty()) return false
-
-        val next = if (activeStateFunction == foragePath) {
-            activeStateMode()
-        } else {
-            pickStandbyMode(getMode())
-        } ?: return false
-
-        // Commit the choice only after the normal selector confirms forage.
-        forced = false
-        forcedReturn = null
-        forcedStart = null
+        val path = listOf("climb", "forage", "move")
+        if (!forageActive || useStaticPool || inSnapped || isFlying) return false
+        if (activeStateFunction != null && activeStateFunction != path) return false
+        // Repeated contact with another food is not a new state entry.
+        if (forageSelected && executingForage()) return false
+        if (!enterStateFunction(path)) return false
         forageSelected = true
-        setMode(next)  // Recreates the clip even when already foraging.
         return true
     }
 
@@ -210,6 +221,8 @@ class PetAnimationController(private val assets: ImageModeManager) {
     }
 
     fun forceReset() {
+        activeStateFunction = null
+        forageSelected = false
         forced = false
         forcedReturn = null
         forcedStart = null
@@ -236,11 +249,11 @@ class PetAnimationController(private val assets: ImageModeManager) {
      */
     fun onLeapLanded() {
         val landing = modeOf("climb", "leap", "landing")
+        activeStateFunction = null
         if (landing != null) {
-            playOnce(landing)
+            playOnce(landing, functionPath = listOf("climb", "leap", "landing"))
         } else {
-            if (forced) cancelForced()
-            setMode(pickStandbyMode(getMode()))
+            resumeState(null)
         }
     }
 
@@ -252,24 +265,8 @@ class PetAnimationController(private val assets: ImageModeManager) {
         // Physical flight never pauses a Mode's own frame timer or nextMode chain.
         val step = current.advance(dtMs)
         if (step.modeChanged) {
-            val continuation = forced && forcedStart?.let {
-                assets.isContinuationOf(current.currentModeId, it)
-            } == true
-            // A forced interaction can naturally return to the state-owned
-            // infinite idle animation (e.g. snapped pat -> snapped idle).
-            // At that point the state, not the old interaction, owns playback.
-            val stateOwnsInfinite = current.isInfiniteLoop && activeStateFunction?.takeUnless { it.firstOrNull() == "snap" }?.let { path ->
-                assets.leavesOf(*path.toTypedArray()).any {
-                    assets.isContinuationOf(current.currentModeId, it)
-                }
-            } == true
-            if (forced && (!continuation || stateOwnsInfinite)) {
-                forced = false
-                forcedReturn = null
-                forcedStart = null
-            }
-            // A nextMode never selects a function. Even when physics releases
-            // forced playback, the clip retains its original function context.
+            // A Mode transition is internal to the same function, even when the
+            // destination is also mapped by another function or loops forever.
             if (!forced) {
                 currentName = current.currentModeId
                 normalFunctionPath = currentFunctionPath

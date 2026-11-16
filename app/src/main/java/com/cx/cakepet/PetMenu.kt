@@ -143,10 +143,9 @@ class PetMenu(
             // 体感重力只切换 tiltGravity 标志，不改动四边定向重力配置（见 PetPhysics/PetService）
             service.updateConfig { copy(tiltGravity = next) }
         }
-        // 摸头：模式由素材包 functions 的 [pat_head, pat_head] 提供（v1.01），代码不写死模式名；
-        // 包未提供该功能则不执行（跳过，不回退、不发空 setMode）。
+        // Menu and double tap request the same environment-specific function.
         v.findViewById<View>(R.id.menu_pat).setOnClickListener {
-            petView.modeOf("pat_head", "pat_head")?.let { petView.playOnce(it) }
+            petView.triggerPatHead()
             dismiss()
         }
         // 交互：打开交互子页面（定格-咔嚓 / 清除所有定格）

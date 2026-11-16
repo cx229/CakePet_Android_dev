@@ -740,8 +740,8 @@ class PetService : Service() {
                 // 生效条件：攀岩已开(上级移动+攀岩) 且 本开关开 且 当前攀岩态 且 非吸附态（吸附态不喜乱动）。
                 v.forageMultiplier = rc.forageMultiplier   // 自动觅食倍率：放大当前帧 dx/dy，不注入额外导航速度
                 v.autoForage = rc.autoForage && v.hasFunction("climb", "forage", "move")     // 自动觅食开关：供 PetView 落地决策判定是否插队进入攀岩态
-                val effForage = v.wallClimb && rc.autoForage && !v.physics.isSnapped &&
-                    !v.physics.isThrowing && !v.physics.isDragging
+                val effForage = v.wallClimb && v.autoForage && !v.useStaticPool &&
+                    !v.physics.isSnapped && v.canTriggerInteraction()
                 if (!effForage) {
                     forageFoodByView.remove(v)
                     v.setForage(false, 0f, 0f)
@@ -1062,17 +1062,7 @@ class PetService : Service() {
             }
             false // 返回 false，仍交由 PetView 自身 onTouchEvent 处理拖拽/双击等
         }
-        view.onDoubleTap = {
-            // 摸头（双击）：吸附态选用对应的摸头功能动作，其余（含攀岩态）播放普通摸头，
-            // 攀岩态下由 climbRotation 把脚旋向所攀墙、播完仍回攀岩态。
-            // 模式名由素材包 functions 提供（v1.01），代码只按【功能路径】寻址：
-            // 包未提供对应功能则整段跳过，不做回退、不发空 setMode。
-            if (view.physics.isSnapped) {
-                view.modeOf("snap", "pat_head", "pat_head")?.let { view.playOnce(it) }
-            } else {
-                view.modeOf("pat_head", "pat_head")?.let { view.playOnce(it) }
-            }
-        }
+        view.onDoubleTap = { view.triggerPatHead() }
         view.onSizeChanged = { recalcBounds() }
         // 拖拽拉出吸附态：PetView 归零残留朝向后会回调，按非吸附态重算活动范围（minX/maxX 等）
         view.onSnapExit = { recalcBounds() }
@@ -1604,11 +1594,9 @@ class PetService : Service() {
         val view = inst.view
         // 投食动作由素材包 functions 提供（v1.01）：吸附态走 [snap, feed, eat]，待机态走 [feed, eat]。
         // 两者末段同为 eat 但路径不同，故必须按完整路径寻址；包未提供则跳过投食动作。
-        val name = when {
-            view.physics.isSnapped -> view.modeOf("snap", "feed", "eat")
-            view.isStandbyMode() || wasLured || view.isFoodLureAnimation() -> view.modeOf("feed", "eat")
-            else -> null
-        }
+        if (!view.canTriggerInteraction()) return
+        val name = if (view.physics.isSnapped) view.modeOf("snap", "feed", "eat")
+            else view.modeOf("feed", "eat")
         if (wasLured || view.hasActiveFoodLure(view.physics.isSnapped)) {
             // Resolve success before the next state-pool selection; no lure-failure on eating.
             view.endFoodLure(resume = name == null)
@@ -4021,11 +4009,8 @@ class PetService : Service() {
     fun performMenuMode(roleId: String, mode: String?, target: PetView?) {
         if (mode.isNullOrEmpty()) return
         val tv = target ?: pets.firstOrNull { it.roleId == roleId }?.view ?: return
-        // 吸附态下菜单动作一律忽略（探头常驻）
-        if (tv.physics.isSnapped) return
-        // Menu invocation is an interaction regardless of the selected Mode's
-        // loop policy. The Mode itself decides whether/when playback ends.
-        tv.playOnce(mode, functionPath = listOf("menu", "pool"))
+        // Menu playback is independent of the physical snap environment.
+        tv.triggerMenuMode(mode)
     }
 
     /** 彻底退出：持久化退出意图，释放资源，停止服务并结束整个应用进程。 */

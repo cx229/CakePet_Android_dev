@@ -157,6 +157,11 @@ class PetView @JvmOverloads constructor(
     // 仅吸附态渲染时应用，退出吸附即不生效，零状态残留、不污染 普通动画/静置等朝向逻辑。
     private var snapFlipX = false
     private var snapStateEntered = false
+    private var staticStateEntered = false
+    private val snapPoolPath = listOf("snap", "pool")
+    private val rollPath = listOf("touch", "roll")
+    private val leapPath = listOf("climb", "leap", "leap")
+    private val foragePath = listOf("climb", "forage", "move")
     // Persistent function state, not the animation's Mode ID or its completion event.
     private var foodLurePath: List<String>? = null
     private val normalFoodLurePath = listOf("feed", "lure")
@@ -494,7 +499,10 @@ class PetView @JvmOverloads constructor(
             // Preserve the direction actually rendered on landing. Randomizing a fresh
             // navigationDirection when JUMP_DOWN finishes can make the resumed pet seem to move
             // backwards relative to its landing pose.
-            modeOf("touch", "jump_down")?.let { playOnce(it) }
+            val landing = modeOf("touch", "jump_down")
+            imageManager.setActiveStateFunction(null)
+            if (landing != null) playOnce(landing, listOf("touch", "jump_down"))
+            else imageManager.resumeState(null)
             // The Mode's own nextMode controls playback after this point.
             onLand?.invoke()   // 真正落地（脚着地）瞬间，外部可显示落地碎碎念
         }
@@ -585,7 +593,7 @@ class PetView @JvmOverloads constructor(
     /** Navigation owns the route; each Mode still owns its own dx/dy frame impulses. */
     private fun isForageNavigationDriving(): Boolean =
         physics.isClimbing && forageActive && imageManager.forageSelected &&
-            !imageManager.isPlayingForced() && !physics.isDragging && !physics.isThrowing &&
+            imageManager.executingForage() && !physics.isDragging && !physics.isThrowing &&
             !flying && !useStaticPool
 
     /** Perimeter routing preserves target choice and corner geometry, without injecting speed. */
@@ -709,7 +717,7 @@ class PetView @JvmOverloads constructor(
 
     fun tick(dt: Float) {
         imageManager.inSnapped = physics.isSnapped
-        if (imageManager.forageSelected && forageActive && !physics.isClimbing &&
+        if (imageManager.executingForage() && imageManager.forageSelected && forageActive && !physics.isClimbing &&
             !physics.isDragging && !physics.isThrowing && !flying) {
             // Reattach only after genuine physical contact, not when merely near a wall
             // (a small outward dy must be allowed to separate from the surface).
@@ -723,7 +731,9 @@ class PetView @JvmOverloads constructor(
         // function chooser again. Physical states retain their own priority.
         if (forageLurePending) {
             forageLurePending = false
-            imageManager.tryRestartForageFromNormalChoice()
+            if (canTriggerInteraction() && !physics.isSnapped) {
+                imageManager.tryRestartForageFromNormalChoice()
+            }
         }
         updateForageNavigation()
         // 注意：窗口尺寸 = 统一画布 × scale（恒定），切模式只是换 currentBitmap + 居中重绘，
@@ -955,154 +965,102 @@ class PetView @JvmOverloads constructor(
      * - 其他：常驻静坐（由 forced 一次性动画或 SIT_CLAM）
      */
     private fun updateAnimByState() {
-        // 静止模式(移动总开关关闭，useStaticPool)时：物理不再位移，动画回到非移动池。
-        // 诉求：别位移 + 仅播放非移动动作（摸头/炸毛/摇头等菜单动作仍可用）。
-        // 注意：仅“移动”总开关决定静止；关重力只关重力（提起/抛掷仍可用），故此处用 useStaticPool
-        // 而非 physics.gravityEnabled；移动态（ROLL/LIFT_UP）由下方 when 守卫拦截。
-        if (useStaticPool && !physics.isSnapped) {
-            // 重力关闭时脚朝向恒为下(0)：宠物不移动，残留的贴墙/倒挂方向会让姿态难看。
-            // 每帧纠正，确保任何来源（设置页/随机/菜单）关闭重力后姿态都朝下；吸附态仍独立保留朝向。
-            // 注意：这里【只】纠正朝向、并退出“移动态”，不抢常驻模式——
-            //   - 关重力时 ROLL/LIFT_UP 这类移动态必须强制退出：ROLL 是恒定循环、物理不位移时
-            //     永远触不了底，会永久空转跳不出（如 ROLL 中触发随机/改设置关重力）。复位到 SIT_CLAM
-            //     后由 ImageModeManager 自然轮换到摇头/炸毛坐等常驻模式。
-            //   - 但【不】对摇头/炸毛坐等常驻模式做 setMode，否则每帧拉回 SIT_CLAM 会让它们“闪一下消失”。
-            gravityDir = 0
-            val m = imageManager.getMode()
-            // 非重力时强制退出所有“移动/吸附”相关态，回到静坐；含从吸附拉出后的探头态(SNAP_HEAD/一次性 SNAP_PAT_HEAD)，
-            // 否则拉出吸附后姿态仍停在探头、松手也不回静坐。常驻模式(摇头/炸毛坐等)不动，避免每帧闪一下。
-            // 各模式名均由功能路径取得；包未提供某项功能时该比较恒为 false（null 不相等），自然跳过。
-            val isRoll = imageManager.isFunctionMode(m, "touch", "roll")
-            val isLiftUp = imageManager.isDragMode(m)
-            val isSnapHead = imageManager.isFunctionMode(m, "snap", "snap_head")
-            val isSnapPat = imageManager.isFunctionMode(m, "snap", "pat_head", "pat_head")
-            if ((isRoll || isLiftUp || isSnapHead || isSnapPat ||
-                    (!physics.isClimbing && !imageManager.isStandbyMode(m))) &&
-                !(hasActiveFoodLure(false) && imageManager.executingFoodLure()) &&
-                !imageManager.isPlayingForced()) {
-                imageManager.forceReset()
-            }
+        val snapped = physics.isSnapped
+        val enteringSnap = snapped && !snapStateEntered
+        val leavingSnap = !snapped && snapStateEntered
+        val staticChanged = staticStateEntered != useStaticPool
+        staticStateEntered = useStaticPool
+        if (useStaticPool && !snapped) gravityDir = 0
+
+        // Physical/environment transitions terminate incompatible functions,
+        // not animations that merely share a Mode with those functions.
+        if (foodLurePath != null && (!canTriggerInteraction() ||
+                foodLurePath != foodLurePath(snapped))) {
+            endFoodLure(resume = false)
         }
-        // Physical entry is an event, not a reverse lookup of the displayed animation.
-        val enteringSnap = physics.isSnapped && !snapStateEntered
-        if (foodLurePath != null && (physics.isDragging || physics.isThrowing || flying ||
-                foodLurePath != foodLurePath(physics.isSnapped))) {
-            endFoodLure()
+        if (leavingSnap) {
+            imageManager.resumeState(null)
         }
-        if (!physics.isSnapped && imageManager.executingSnapFunction()) {
-            imageManager.forceReset()
-        }
-        snapStateEntered = physics.isSnapped
+        snapStateEntered = snapped
 
         if (!physics.isDragging) activeDragFunction = null
         when {
             physics.isDragging && !useStaticPool -> {
-                // 引擎只判定拖动速度和方向；候选动作及帧图由 Functions / Modes 负责。
-                if (imageManager.isPlayingForced()) imageManager.cancelForced()
                 val vx = physics.vx
                 val thMid = width * 1.5f
                 val thHigh = width * 3.5f
-                val dragFunction = when {
+                val condition = when {
                     vx <= -thHigh -> "left_fast"
                     vx <= -thMid -> "left_medium"
                     vx >= thHigh -> "right_fast"
                     vx >= thMid -> "right_medium"
                     else -> "slow"
                 }
-                val path = arrayOf("touch", "lift_up", dragFunction)
-                if (activeDragFunction != dragFunction ||
-                    !imageManager.isFunctionMode(imageManager.getMode(), *path)) {
-                    modeOf(*path)?.let {
-                        imageManager.setMode(it)
-                        syncCurrentBitmap()  // 状态切换时继续即时更新帧图
-                    }
+                val path = listOf("touch", "lift_up", condition)
+                if (activeDragFunction != condition) {
+                    // A condition change is a new trigger; its animation chain
+                    // then owns playback until the next condition change.
+                    if (!imageManager.enterStateFunction(path)) imageManager.resumeState(null)
+                    activeDragFunction = condition
                 }
-                activeDragFunction = dragFunction
+                imageManager.setActiveStateFunction(path)
+                return
             }
             physics.isThrowing && !useStaticPool -> {
-                // Roll 由物理状态进入事件启动一次；本分支不能按当前 Mode 所属映射反查状态。
-                // 仅当其他一次性交互抢占了播放时，打断它并从 Roll 功能池恢复。
-                // 正常 Roll 及其 nextMode 链由 Controller 自然推进、结束后继续从 touch/roll 抽取。
-                if (imageManager.isPlayingForced()) {
-                    imageManager.cancelForced()
-                    modeOf("touch", "roll")?.let { imageManager.setMode(it) }
-                }
+                imageManager.setActiveStateFunction(rollPath)
+                return
             }
-            physics.isSnapped -> {
+            snapped -> {
                 snapRotation = dirToRotation(physics.snapSide)
                 if (enteringSnap) {
-                    if (imageManager.isPlayingForced()) imageManager.cancelForced()
-                    val entry = modeOf("snap", "snap_head")
-                    if (entry != null) imageManager.playOnce(entry)
-                    else modeOf("snap", "pool")?.let { imageManager.setMode(it) }
                     snapFlipX = kotlin.random.Random.nextBoolean()
+                    imageManager.setActiveStateFunction(snapPoolPath)
+                    val entry = modeOf("snap", "snap_head")
+                    if (entry != null) imageManager.playOnce(entry, functionPath = listOf("snap", "snap_head"))
+                    else imageManager.resumeState(snapPoolPath)
                     vibrateOnce()
-                } else if (!imageManager.executingSnapFunction()) {
-                    // Reset while attached restores the selected persistent function.
-                    val lure = foodLurePath?.takeIf { it == snapFoodLurePath }
-                    if (lure != null && !imageManager.isPlayingForced()) {
-                        imageManager.startFoodLure(lure)
-                    } else if (lure == null) {
-                        if (imageManager.isPlayingForced()) imageManager.cancelForced()
-                        modeOf("snap", "pool")?.let { imageManager.setMode(it) }
-                    }
                 }
-                // Interactions and their whole nextMode chains retain their function.
-                // Natural completion returns to the state-owned pool below.
-            }
-            // 其余状态（静置/落地后）：
-            // 若正在播放一次性动作（如摸头）则不打断；
-            // 物理空闲且非 forced 时，不再强制回 SIT_CLAM，交由 ImageModeManager
-            // 的 timeNext / nextModeName 机制决定下一个模式（自动轮换 / 动作链），
-            // 否则摇头、炸毛坐等非 sit 的常驻模式会被每帧拉回 SIT_CLAM。
-            // 攀爬态（独立于重力/吸附的专用状态位）：常驻脚朝所攀墙，与吸附态同理用专属旋转，
-            // 不污染全局 gravityDir（不影响体感/四边重力方向，拖拽松手亦无残留）。
-            // 摸摸头等一次性动作(forced)期间：让位不打断，动作结束由其 nextMode 自然回到攀爬态；
-            // 仅“纯攀爬待机/行走”时才刷新脚朝墙旋转与锁轴，避免摸头被墙朝向强摆或被判静止重力打断。
-            physics.isClimbing -> {
-                // 摸摸头/投食等一次性动作(forced)期间：完全让位、不打断，也不重设攀爬旋转与锁轴，
-                // 交给动画系统完整播放（含后续摇头等动作链）。物理 step 层 isClimbing 始终跳过重力
-                // 并锁垂直接触轴，宠物始终贴墙、绝不会“突然受重力掉墙”。
-                // 动作期间 climbRotation 保持为所攀墙方向，PAT_HEAD 等静坐动作被整体旋成脚朝墙、贴墙位置正确。
-                // forced 结束后 isClimbing 仍 true，下一帧回到本分支恢复贴墙攀爬态（原状态/池子不变）。
-                if (!imageManager.isPlayingForced()) {
-                    climbRotation = dirToRotation(physics.climbSide)
-                    // 与重力开关无关：关重力攀爬依旧贴合原地；仅导航正在驱动时保留沿墙速度。
-                    if (!isForageNavigationDriving()) {
-                        when (physics.climbSide) {
-                            0, 3 -> physics.vx = 0f
-                            else -> physics.vy = 0f
-                        }
-                    }
+                val state = foodLurePath?.takeIf { it == snapFoodLurePath } ?: snapPoolPath
+                imageManager.setActiveStateFunction(state)
+                // Menu events are valid inside the snapped environment. Only
+                // an explicit reset to ordinary standby needs state recovery.
+                if (!imageManager.isPlayingForced() && !imageManager.executingFunction(state)) {
+                    imageManager.enterStateFunction(state)
                 }
+                return
             }
-            // 仅对“物理动作残留”的 LIFT_UP 做兜底复位（提起态不应在空闲时停留）。
-            else -> {
-                if (imageManager.isDragMode() && !imageManager.isPlayingForced()) {
-                    imageManager.forceReset()
+            flying -> {
+                imageManager.setActiveStateFunction(leapPath)
+                return
+            }
+        }
+
+        if (physics.isClimbing) {
+            climbRotation = dirToRotation(physics.climbSide)
+            if (!isForageNavigationDriving()) {
+                when (physics.climbSide) {
+                    0, 3 -> physics.vx = 0f
+                    else -> physics.vy = 0f
                 }
             }
         }
-        // State is the authority for which Functions pool resumes when the current
-        // action chain ends. Mode IDs, frame names and loop flags are not inspected.
-        // Forced action chains are preserved until their natural end or state interrupt.
-        val activeFunction = when {
-            physics.isDragging && !useStaticPool ->
-                listOf("touch", "lift_up", activeDragFunction ?: "slow")
-            physics.isThrowing && !useStaticPool -> listOf("touch", "roll")
-            physics.isSnapped -> foodLurePath?.takeIf { it == snapFoodLurePath } ?: listOf("snap", "pool")
-            flying -> listOf("climb", "leap", "leap")
+        val state = when {
             foodLurePath == normalFoodLurePath -> normalFoodLurePath
-            physics.isClimbing && forageActive && imageManager.forageSelected ->
-                listOf("climb", "forage", "move")
+            forageActive && imageManager.forageSelected && !useStaticPool -> foragePath
             else -> null
         }
-        imageManager.setActiveStateFunction(activeFunction)
-        // A reset can replace the clip, but an unchanged lure state owns the next
-        // selection. Never restart an already-running chain or a forced interaction.
-        if (activeFunction != null && activeFunction == foodLurePath &&
-            !imageManager.executingFoodLure() && !imageManager.isPlayingForced()) {
-            imageManager.startFoodLure(activeFunction)
+        imageManager.setActiveStateFunction(state)
+        if (!imageManager.isPlayingForced()) {
+            when {
+                state != null && !imageManager.executingFunction(state) ->
+                    imageManager.enterStateFunction(state)
+                state == null && (imageManager.executingDragFunction() ||
+                    imageManager.executingFunction(rollPath) ||
+                    imageManager.executingFunction(leapPath) ||
+                    imageManager.executingForage() || imageManager.executingFoodLure() ||
+                    (staticChanged && imageManager.executingStandbyFunction())) ->
+                    imageManager.resumeState(null)
+            }
         }
     }
 
@@ -1431,13 +1389,10 @@ class PetView @JvmOverloads constructor(
         val offY = fay * scaleFactor
         val rot = stateRotation
         val effRot = rot
-        val mode = imageManager.getMode()
         // 探头/吸附类动作（吸附探头、吸附摸摸头、吸附投食）：脚底盒【中心与脚锚点对齐】（水平+垂直），
         // 即盒子以脚锚点为对称中心，而非非探头动作那种“盒底贴脚、向上抬”。这样方向无关——
         // 从任意边探头（脚朝上/下/左/右），盒子都向身体一侧延伸并覆盖整只宠物，保证摸摸头/投食/探头可命中。
-        if (physics.isSnapped || imageManager.isFunctionMode(mode, "snap", "snap_head") ||
-            imageManager.isFunctionMode(mode, "snap", "pat_head", "pat_head") ||
-            imageManager.isFunctionMode(mode, "snap", "feed", "eat")) {
+        if (physics.isSnapped) {
             return rotateOffsetWith(offX, offY, w, h, effRot)
         }
         // 其它动作：盒底贴脚（盒中心在脚上方 hh/2+vo 处），仅水平以脚锚点为对称。
@@ -1479,15 +1434,28 @@ class PetView @JvmOverloads constructor(
     fun isFoodLureAnimation(): Boolean = imageManager.executingFoodLure()
     fun hasFoodLure(snapped: Boolean): Boolean = hasFunction(*foodLurePath(snapped).toTypedArray())
     fun hasActiveFoodLure(snapped: Boolean): Boolean = foodLurePath == foodLurePath(snapped)
-    private fun canStartFoodLure(): Boolean = !imageManager.isPlayingForced() ||
-        imageManager.executingFoodLure() || imageManager.executingFoodLureFailure()
+    /** Physical gates are shared by all ordinary/attached interactions. */
+    fun canTriggerInteraction(): Boolean =
+        !physics.isDragging && !physics.isThrowing && !flying
+
+    fun triggerPatHead() {
+        if (!canTriggerInteraction()) return
+        val path = if (physics.isSnapped) listOf("snap", "pat_head", "pat_head")
+            else listOf("pat_head", "pat_head")
+        modeOf(*path.toTypedArray())?.let { playOnce(it, path) }
+    }
+
+    fun triggerMenuMode(name: String) {
+        if (!canTriggerInteraction() || name !in imageManager.leavesOf("menu", "pool")) return
+        playOnce(name, listOf("menu", "pool"))
+    }
 
     fun startFoodLure(snapped: Boolean): Boolean {
         val path = foodLurePath(snapped)
         if (foodLurePath == path) return true
         // Let genuine snap entry finish before selecting the persistent pool.
         if (snapped && !snapStateEntered) return false
-        if (!canStartFoodLure() || !imageManager.startFoodLure(path)) return false
+        if (!canTriggerInteraction() || !imageManager.startFoodLure(path)) return false
         foodLurePath = path
         pendingLeapMode = null
         return true
@@ -1504,7 +1472,8 @@ class PetView @JvmOverloads constructor(
     fun finishFoodLure(snapped: Boolean) {
         if (!hasActiveFoodLure(snapped)) return
         val path = if (snapped) listOf("snap", "feed", "lure_fail") else listOf("feed", "lure_fail")
-        val mode = if (canStartFoodLure()) modeOf(*path.toTypedArray()) else null
+        val mode = if (canTriggerInteraction() && imageManager.executingFoodLure())
+            modeOf(*path.toTypedArray()) else null
         endFoodLure(resume = mode == null)
         if (mode != null) playOnce(mode, path)
     }
@@ -1538,6 +1507,7 @@ class PetView @JvmOverloads constructor(
     }
 
     fun playOnce(name: String, functionPath: List<String>? = null) {
+        pendingLeapMode = null
         imageManager.playOnce(name, functionPath = functionPath)
     }
 
@@ -1731,7 +1701,8 @@ class PetView @JvmOverloads constructor(
     }
 
     /** Food proximity may initiate eating only after the normal action chooser selected forage. */
-    fun isForageTravelActive(): Boolean = forageActive && imageManager.forageSelected
+    fun isForageTravelActive(): Boolean = forageActive && imageManager.forageSelected &&
+        imageManager.executingForage() && canTriggerInteraction() && !physics.isSnapped
 
     /** 是否正在播放强制一次性动作（投食/摸头等插曲）。供 PetService 在自动觅食会话期间判定，桥接 private imageManager。 */
     fun isPlayingForced(): Boolean = imageManager.isPlayingForced()
@@ -1791,7 +1762,8 @@ class PetView @JvmOverloads constructor(
     // 镜像只看目标相对原位置的水平方向（目标在右→镜像、在左→不镜像）。落地后进入攀爬态（setClimb）脚朝目标墙。
     private fun startLeapFlight(jumpUp: String) {
         // Mode 由 Engine 的飞跃决策在功能映射中选择，不能重新随机选择第二个。
-        if (imageManager.getMode() != jumpUp) imageManager.setMode(jumpUp)
+        // The chooser has already committed the exact selected function/Mode.
+        imageManager.setActiveStateFunction(leapPath)
         imageManager.isFlying = true
         // 起飞瞬间所有紧贴墙：角落会同时贴两面墙，整组记录并排除（不能作目标、也不能作命中墙）。
         val launchTouched = mutableSetOf<Int>().apply {
@@ -1838,6 +1810,8 @@ class PetView @JvmOverloads constructor(
         pendingLeapMode = null
         endFoodLure(resume = false)
         imageManager.forceReset()
+        flying = false
+        imageManager.isFlying = false
         snapStateEntered = false
         physics.clearSnap()   // 召回同时退出吸附态
         physics.snapSide = 0
@@ -2047,6 +2021,9 @@ class PetView @JvmOverloads constructor(
                         // 真正进入拖拽：退出飞跃/攀岩态（仅清状态位，全局重力自始未被攀岩改动）。
                         // 仅在此时退出，避免“按下准备双击/单击”就误清攀爬态导致掉墙。
                         flying = false
+                        physics.isThrowing = false
+                        endFoodLure(resume = false)
+                        imageManager.resumeState(null)
                         physics.inLeapFlight = false   // 恢复重力（不依赖“四边重力全关”残留）
                         physics.suppressBounce = false
                         if (climbWall >= 0) restoreBaseGravity()
@@ -2083,7 +2060,8 @@ class PetView @JvmOverloads constructor(
                     val wasSnapped = physics.isSnapped
                     physics.clearSnap()
                     if (wasSnapped) {
-                        snapStateEntered = false
+                        // Keep the previous environment until the next state update,
+                        // so even a shared menu event is terminated on detachment.
                         physics.snapSide = 0
                         snapRotation = 0f
                         snapFlipX = false
@@ -2156,8 +2134,8 @@ class PetView @JvmOverloads constructor(
                     onLongPress?.invoke()
                 } else {
                     // 纯点击/短按（非拖拽、非长按）：若因历史原因停在 LIFT_UP，复位避免卡死
-                    if (imageManager.isDragMode() && !imageManager.isPlayingForced()) {
-                        imageManager.forceReset()
+                    if (imageManager.executingDragFunction() && !physics.isDragging) {
+                        imageManager.resumeState(if (physics.isSnapped) snapPoolPath else null)
                     }
                     onTap?.invoke()        // 轻点置顶本宠，多宠物时让被压住的宠物下次可被点中
                 }
@@ -2186,11 +2164,12 @@ class PetView @JvmOverloads constructor(
         if (physics.isSnapped || physics.isClimbing) return
         if (physics.isDragging || (physics.isThrowing && !force)) return
         physics.beginTiltRoll()
-        if (imageManager.isPlayingForced()) imageManager.cancelForced()
+        endFoodLure(resume = false)
+        imageManager.forageSelected = false
         // 每一次真正进入翻滚，都从功能池选取并重新开始一次播放。
         // 即使此前其他功能正好播放了同一个 Mode，也不能沿用其旧帧或动作链。
         // 进入之后由 Controller 在链自然结束时继续从 touch/roll 选择，不逐帧重置。
-        modeOf("touch", "roll")?.let { imageManager.setMode(it) }
+        if (!imageManager.enterStateFunction(rollPath)) imageManager.resumeState(null)
         // 先切 ROLL（居中对称，旋转外观不变），再改方向：下一帧 onDraw 直接看到 ROLL+新朝向，
         // 不会让旧模式帧先被新旋转角硬转一帧。
         if (dir != null) gravityDir = dir
