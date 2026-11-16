@@ -157,6 +157,11 @@ class PetView @JvmOverloads constructor(
     // 仅吸附态渲染时应用，退出吸附即不生效，零状态残留、不污染 普通动画/静置等朝向逻辑。
     private var snapFlipX = false
     private var snapStateEntered = false
+    // Persistent function state, not the animation's Mode ID or its completion event.
+    private var foodLurePath: List<String>? = null
+    private val normalFoodLurePath = listOf("feed", "lure")
+    private val snapFoodLurePath = listOf("snap", "feed", "lure")
+    private fun foodLurePath(snapped: Boolean) = if (snapped) snapFoodLurePath else normalFoodLurePath
     // 攀爬态专属旋转角（度，顺时针）：脚朝所攀墙(climbSide)，仅攀爬态渲染时应用，
     // 不修改全局 gravityDir/gravityRotation，退出攀爬即归零，不影响其他状态方向。
     internal var climbRotation = 0f
@@ -933,6 +938,7 @@ class PetView @JvmOverloads constructor(
      */
     fun applySpritePack(pack: SpritePack) {
         pendingLeapMode = null
+        endFoodLure(resume = false)
         imageManager.setPack(pack)
         val (thinking, texts) = imageManager.currentThinkingConfig()
         onThinkingModeEntered?.invoke(thinking, texts)
@@ -972,12 +978,17 @@ class PetView @JvmOverloads constructor(
             val isSnapPat = imageManager.isFunctionMode(m, "snap", "pat_head", "pat_head")
             if ((isRoll || isLiftUp || isSnapHead || isSnapPat ||
                     (!physics.isClimbing && !imageManager.isStandbyMode(m))) &&
+                !(hasActiveFoodLure(false) && imageManager.executingFoodLure()) &&
                 !imageManager.isPlayingForced()) {
                 imageManager.forceReset()
             }
         }
         // Physical entry is an event, not a reverse lookup of the displayed animation.
         val enteringSnap = physics.isSnapped && !snapStateEntered
+        if (foodLurePath != null && (physics.isDragging || physics.isThrowing || flying ||
+                foodLurePath != foodLurePath(physics.isSnapped))) {
+            endFoodLure()
+        }
         if (!physics.isSnapped && imageManager.executingSnapFunction()) {
             imageManager.forceReset()
         }
@@ -1027,9 +1038,14 @@ class PetView @JvmOverloads constructor(
                     snapFlipX = kotlin.random.Random.nextBoolean()
                     vibrateOnce()
                 } else if (!imageManager.executingSnapFunction()) {
-                    // Reset/pack refresh while attached resumes the pool, not the entry event.
-                    if (imageManager.isPlayingForced()) imageManager.cancelForced()
-                    modeOf("snap", "pool")?.let { imageManager.setMode(it) }
+                    // Reset while attached restores the selected persistent function.
+                    val lure = foodLurePath?.takeIf { it == snapFoodLurePath }
+                    if (lure != null && !imageManager.isPlayingForced()) {
+                        imageManager.startFoodLure(lure)
+                    } else if (lure == null) {
+                        if (imageManager.isPlayingForced()) imageManager.cancelForced()
+                        modeOf("snap", "pool")?.let { imageManager.setMode(it) }
+                    }
                 }
                 // Interactions and their whole nextMode chains retain their function.
                 // Natural completion returns to the state-owned pool below.
@@ -1074,13 +1090,20 @@ class PetView @JvmOverloads constructor(
             physics.isDragging && !useStaticPool ->
                 listOf("touch", "lift_up", activeDragFunction ?: "slow")
             physics.isThrowing && !useStaticPool -> listOf("touch", "roll")
-            physics.isSnapped -> listOf("snap", "pool")
+            physics.isSnapped -> foodLurePath?.takeIf { it == snapFoodLurePath } ?: listOf("snap", "pool")
             flying -> listOf("climb", "leap", "leap")
+            foodLurePath == normalFoodLurePath -> normalFoodLurePath
             physics.isClimbing && forageActive && imageManager.forageSelected ->
                 listOf("climb", "forage", "move")
             else -> null
         }
         imageManager.setActiveStateFunction(activeFunction)
+        // A reset can replace the clip, but an unchanged lure state owns the next
+        // selection. Never restart an already-running chain or a forced interaction.
+        if (activeFunction != null && activeFunction == foodLurePath &&
+            !imageManager.executingFoodLure() && !imageManager.isPlayingForced()) {
+            imageManager.startFoodLure(activeFunction)
+        }
     }
 
     /**
@@ -1454,18 +1477,56 @@ class PetView @JvmOverloads constructor(
     /** 当前模式是否处于待机动作清单（供投喂判断是否切"坐姿投食"）。 */
     fun isStandbyMode(): Boolean = imageManager.isStandbyMode()
     fun isFoodLureAnimation(): Boolean = imageManager.executingFoodLure()
-    fun canStartFoodLure(): Boolean = !imageManager.isPlayingForced() ||
+    fun hasFoodLure(snapped: Boolean): Boolean = hasFunction(*foodLurePath(snapped).toTypedArray())
+    fun hasActiveFoodLure(snapped: Boolean): Boolean = foodLurePath == foodLurePath(snapped)
+    private fun canStartFoodLure(): Boolean = !imageManager.isPlayingForced() ||
         imageManager.executingFoodLure() || imageManager.executingFoodLureFailure()
-    fun startFoodLure(snapped: Boolean) {
-        val path = if (snapped) listOf("snap", "feed", "lure") else listOf("feed", "lure")
-        modeOf(*path.toTypedArray())?.let { playOnce(it, path) }
+
+    fun startFoodLure(snapped: Boolean): Boolean {
+        val path = foodLurePath(snapped)
+        if (foodLurePath == path) return true
+        // Let genuine snap entry finish before selecting the persistent pool.
+        if (snapped && !snapStateEntered) return false
+        if (!canStartFoodLure() || !imageManager.startFoodLure(path)) return false
+        foodLurePath = path
+        pendingLeapMode = null
+        return true
     }
-    fun endFoodLure() = imageManager.endFoodLure()
+
+    fun endFoodLure(resume: Boolean = true) {
+        if (foodLurePath == null) return
+        foodLurePath = null
+        // Never select a snap pool after physical snap has ended.
+        val resumePath = if (physics.isSnapped) listOf("snap", "pool") else null
+        imageManager.endFoodLure(resumePath, resume)
+    }
+
     fun finishFoodLure(snapped: Boolean) {
+        if (!hasActiveFoodLure(snapped)) return
         val path = if (snapped) listOf("snap", "feed", "lure_fail") else listOf("feed", "lure_fail")
-        val mode = modeOf(*path.toTypedArray())
-        if (mode != null && canStartFoodLure()) playOnce(mode, path)
-        else endFoodLure()
+        val mode = if (canStartFoodLure()) modeOf(*path.toTypedArray()) else null
+        endFoodLure(resume = mode == null)
+        if (mode != null) playOnce(mode, path)
+    }
+
+    /** Lure facing is state-local. The resources face right before runtime mirroring. */
+    fun faceFoodLure(relX: Float, relY: Float) {
+        if (foodLurePath == null || !imageManager.executingFoodLure()) return
+        val rotation = when {
+            physics.isSnapped -> dirToRotation(physics.snapSide)
+            physics.isClimbing -> dirToRotation(physics.climbSide)
+            useStaticPool -> 0f
+            else -> gravityRotation
+        }
+        val radians = Math.toRadians(rotation.toDouble())
+        val projection = relX * Math.cos(radians).toFloat() + relY * Math.sin(radians).toFloat()
+        if (kotlin.math.abs(projection) < 12f) return
+        val mirror = projection < 0f
+        when {
+            physics.isSnapped -> snapFlipX = mirror
+            physics.isClimbing -> climbFlipX = mirror
+            else -> flipX = mirror
+        }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -1629,7 +1690,7 @@ class PetView @JvmOverloads constructor(
     private fun canStartLeap(): Boolean =
         leapEnabled && wallClimb && !flying &&
             !physics.isDragging && !physics.isThrowing && !physics.isSnapped &&
-            !useStaticPool && !forageActive
+            !useStaticPool && !forageActive && foodLurePath == null
 
     /** 仅在正常动作自然结束时掷骰；动作名称/其他功能映射不会触发飞跃。 */
     private fun chooseAutomaticLeapMode(): String? {
@@ -1775,6 +1836,7 @@ class PetView @JvmOverloads constructor(
     /** 强制复位（召回）：清除所有动画并切回静坐 sit_clam */
     fun forceReset() {
         pendingLeapMode = null
+        endFoodLure(resume = false)
         imageManager.forceReset()
         snapStateEntered = false
         physics.clearSnap()   // 召回同时退出吸附态

@@ -56,12 +56,25 @@ class PetAnimationController(private val assets: ImageModeManager) {
         currentFunctionPath == listOf("snap", "feed", "lure")
     fun executingFoodLureFailure(): Boolean = currentFunctionPath == listOf("feed", "lure_fail") ||
         currentFunctionPath == listOf("snap", "feed", "lure_fail")
-    fun endFoodLure() {
-        if (!executingFoodLure()) return
+    fun startFoodLure(path: List<String>): Boolean {
+        val next = modeOf(*path.toTypedArray()) ?: return false
         forced = false
         forcedReturn = null
         forcedStart = null
-        // State-owned snap pool wins; otherwise choose the configured standby pool.
+        forageSelected = false
+        activeStateFunction = path
+        setMode(next)
+        return true
+    }
+
+    fun endFoodLure(resumePath: List<String>?, resume: Boolean) {
+        // Clear the old state before choosing anything, otherwise an infinite lure can
+        // restart itself or a completed eat can fall back into the old lure pool.
+        activeStateFunction = resumePath
+        if (!resume || !executingFoodLure()) return
+        forced = false
+        forcedReturn = null
+        forcedStart = null
         val next = activeStateMode() ?: selectInitialStandby()
         next?.let { setMode(it) }
     }

@@ -1536,9 +1536,9 @@ class PetService : Service() {
             val lp = inst.displayLp
             val snapped = view.physics.isSnapped
             val automatic = view.wallClimb && view.autoForage && !view.useStaticPool
-            val eligible = inst.displayAdded && lp != null && !view.physics.isDragging &&
-                !view.physics.isThrowing && !view.flying &&
-                (snapped || !automatic)
+            val eligible = inst.displayAdded && lp != null && rolePetVisible(inst.roleId) &&
+                !view.physics.isDragging && !view.physics.isThrowing && !view.flying &&
+                (snapped || !automatic) && view.hasFoodLure(snapped)
             if (!eligible || lp == null) {
                 if (old != null) {
                     foodLures.remove(view)
@@ -1564,11 +1564,15 @@ class PetService : Service() {
             if (old == null || old.snapped != snapped) {
                 if (old != null) view.endFoodLure()
                 // Do not interrupt a successful eat or unrelated forced interaction.
-                if (!view.canStartFoodLure()) continue
-                view.startFoodLure(snapped)
+                foodLures.remove(view)
+                if (!view.startFoodLure(snapped)) continue
+            } else if (!view.hasActiveFoodLure(snapped)) {
+                // A physical reset may have cleared the view state without removing its old target.
+                foodLures.remove(view)
+                if (!view.startFoodLure(snapped)) continue
             }
             foodLures[view] = FoodLure(target.iv, snapped)
-            faceFood(view, target.lp.x + target.lp.width / 2f - cx,
+            view.faceFoodLure(target.lp.x + target.lp.width / 2f - cx,
                 target.lp.y + target.lp.height / 2f - cy)
         }
     }
@@ -1605,12 +1609,13 @@ class PetService : Service() {
             view.isStandbyMode() || wasLured || view.isFoodLureAnimation() -> view.modeOf("feed", "eat")
             else -> null
         }
-        if (name == null) {
-            if (wasLured) view.endFoodLure()
-            return
+        if (wasLured || view.hasActiveFoodLure(view.physics.isSnapped)) {
+            // Resolve success before the next state-pool selection; no lure-failure on eating.
+            view.endFoodLure(resume = name == null)
         }
+        if (name == null) return
         faceFood(view, relX, relY)
-        view.playOnce(name)
+        view.playOnce(name, if (view.physics.isSnapped) listOf("snap", "feed", "eat") else listOf("feed", "eat"))
     }
 
     private fun faceFood(view: PetView, relX: Float, relY: Float) {

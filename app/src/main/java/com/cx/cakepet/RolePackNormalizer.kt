@@ -12,7 +12,7 @@ internal object RolePackNormalizer {
     const val REPORT_FILE = ".cakepet-import-report.json"
     const val ORIGINAL_FILE = "modes.original.jsonc"
 
-    // Existing runtime contract + additional active paths represented by the shipped v1.10 template.
+    // Runtime contract and optional paths represented by the shipped v1.12 template.
     val supportedPaths: List<List<String>> = (
         // climb/move and climb/jump_up are legacy contract aliases, not active engine paths.
         RolePackageContract.REQUIRED_FUNCTION_PATHS.filterNot {
