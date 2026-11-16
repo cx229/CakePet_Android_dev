@@ -489,6 +489,7 @@ class PetService : Service() {
 
     // Each role owns its diagnostic overlay; no global selected-role alias.
     private val debugWindows = linkedMapOf<String, PetDebugWindow>()
+    private val debugDocuments = mutableMapOf<String, PetDebugDocument>()
     private var debugLastRefresh = 0L
     private var debugFrameCount = 0
     private var showImageBorder = false
@@ -864,10 +865,27 @@ class PetService : Service() {
             // 虚拟地面 = 用户在设置页拖动时看到的边界偏移线（boundLines），直接复用其坐标，
             // 位置与设置页偏移线完全一致；与宠物图片/帧锚点无关。
             // 遍历【所有实例】各算一段（修复：旧实现只驱动主实例，多宠物时其它宠物不显示）。
-            if (debugWindows.isNotEmpty()) updateDebugWindows(now)
+            if (debugWindows.isNotEmpty() || debugPageRoleId != null) updateDebugWindows(now)
+            else if (debugDocuments.isNotEmpty()) {
+                debugDocuments.clear()
+                debugLastRefresh = 0L
+                debugFrameCount = 0
+            }
 
             mainHandler.postDelayed(this, FRAME_DELAY)
         }
+    }
+
+    internal fun debugDocument(roleId: String): PetDebugDocument? =
+        if (pets.any { it.roleId == roleId }) debugDocuments[roleId] else null
+
+    internal fun isDebugWindowOpen(roleId: String): Boolean = roleId in debugWindows
+
+    internal fun setDebugWindowEnabled(roleId: String, enabled: Boolean) {
+        val rt = engines[roleId] ?: return
+        syncDebugWindow(roleId, enabled)
+        val opened = isDebugWindowOpen(roleId)
+        scope.launch { rt.config.update { it.copy(showDebug = opened) } }
     }
 
     private fun syncDebugWindow(roleId: String, enabled: Boolean) {
@@ -877,14 +895,16 @@ class PetService : Service() {
         }
         val inst = pets.firstOrNull { it.roleId == roleId } ?: return
         if (roleId in debugWindows) return
-        val win = PetDebugWindow(this, windowManager, ::getScreenBounds, debugWindows.size)
+        val win = PetDebugWindow(this, windowManager, ::getScreenBounds, debugWindows.size) {
+            setDebugWindowEnabled(roleId, false)
+        }
         if (win.open()) {
             debugWindows[roleId] = win
-            win.update(RoleStore.resolveDisplayName(this, roleId), inst,
+            val document = debugDocuments[roleId] ?: PetDebugFormatter.capture(
+                RoleStore.resolveDisplayName(this, roleId), inst,
                 pets.count { it.roleId == roleId }, maxOf(viewImeInset, globalImeInset),
-                currentForegroundApp, null)
-            debugLastRefresh = SystemClock.uptimeMillis()
-            debugFrameCount = 0
+                currentForegroundApp, null).also { debugDocuments[roleId] = it }
+            win.update(document)
         }
     }
 
@@ -895,11 +915,20 @@ class PetService : Service() {
         val fps = if (elapsed > 0L && elapsed < 2000L) debugFrameCount * 1000f / elapsed else null
         debugLastRefresh = now
         debugFrameCount = 0
-        for ((roleId, win) in debugWindows) {
+        val roles = debugWindows.keys.toMutableSet()
+        debugPageRoleId?.let { roles.add(it) }
+        debugDocuments.keys.retainAll(roles)
+        for (roleId in roles) {
             val instances = pets.filter { it.roleId == roleId }
-            val inst = instances.firstOrNull() ?: continue
-            win.update(RoleStore.resolveDisplayName(this, roleId), inst, instances.size,
-                maxOf(viewImeInset, globalImeInset), currentForegroundApp, fps)
+            val inst = instances.firstOrNull()
+            if (inst == null) {
+                debugDocuments.remove(roleId)
+                continue
+            }
+            val document = PetDebugFormatter.capture(RoleStore.resolveDisplayName(this, roleId),
+                inst, instances.size, maxOf(viewImeInset, globalImeInset), currentForegroundApp, fps)
+            debugDocuments[roleId] = document
+            debugWindows[roleId]?.update(document)
         }
     }
 
@@ -4062,6 +4091,7 @@ class PetService : Service() {
         clearAllFreeze(roleId)
         modeAssetManagers.remove(roleId)
         debugWindows.remove(roleId)?.close()
+        debugDocuments.remove(roleId)
         pendingInitialPlacement.remove(roleId)
 
         val removed = pets.filter { it.roleId == roleId }
@@ -4264,6 +4294,7 @@ class PetService : Service() {
         guideAdded = false
         debugWindows.values.forEach { it.close() }
         debugWindows.clear()
+        debugDocuments.clear()
         guideLineView = null
         // 停止所有角色的投食循环（按角色独立持有的 runnable），并清除全部支鱼（回收 Bitmap，防泄漏）
         for (rt in engines.values) {
@@ -4284,6 +4315,8 @@ class PetService : Service() {
     companion object {
         // 供设置页（同进程）直接驱动辅助线浮层，避免引入广播样板。
         var instance: PetService? = null
+        // Same-process foreground diagnostic page; no Activity reference retained.
+        internal var debugPageRoleId: String? = null
         /** 角色在屏状态（召唤/召回）变化回调：首页 MainActivity 注册以即时刷新卡片。
          *  用 companion 级静态回调，使服务尚未创建（instance 为 null）时的异步召唤也能通知到已打开的页面。 */
         @JvmStatic var onActiveRolesChanged: (() -> Unit)? = null

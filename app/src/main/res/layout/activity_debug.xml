@@ -58,7 +58,8 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:clipToPadding="false">
 
         <LinearLayout
@@ -66,6 +67,31 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="24dp">
+
+            <TextView
+                style="@style/SettingsOptionTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="实时调试信息" />
+
+            <TextView
+                android:id="@+id/tv_live_debug"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="24dp"
+                android:text="角色未召唤"
+                android:textColor="@color/cp_title"
+                android:textSize="12sp"
+                android:lineSpacingExtra="2dp"
+                android:padding="8dp" />
+
+            <TextView
+                style="@style/SettingsOptionTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="调试设置" />
 
             <TextView
                 android:id="@+id/tv_version"
@@ -346,25 +372,7 @@
                     android:layout_height="wrap_content" android:thumbTint="@color/switch_black_selector" android:trackTint="@color/switch_black_selector"/>
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
 
-                <TextView
-                    style="@style/SettingsOptionSub"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="左下调试信息" />
-
-                <Switch
-                    android:id="@+id/sw_debug"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" android:thumbTint="@color/switch_black_selector" android:trackTint="@color/switch_black_selector"/>
-            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -694,4 +702,15 @@
 
         </LinearLayout>
     </ScrollView>
+
+    <Button
+        android:id="@+id/btn_debug_window"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="24dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="12dp"
+        android:enabled="false"
+        android:text="打开调试窗口"
+        android:textAllCaps="false" />
 </LinearLayout>

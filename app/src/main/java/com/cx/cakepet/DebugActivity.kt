@@ -24,11 +24,57 @@ class DebugActivity : AppCompatActivity() {
 
     private lateinit var config: PetConfig
     private lateinit var rowCtrlBox: View
+    private lateinit var debugRoleId: String
+    private lateinit var debugBody: TextView
+    private lateinit var debugWindowButton: android.widget.Button
+    private var lastDebugDocument: PetDebugDocument? = null
+    private val debugHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val debugRefresh = object : Runnable {
+        override fun run() {
+            renderLiveDebug()
+            debugHandler.postDelayed(this, 80L)
+        }
+    }
+
+    private fun renderLiveDebug() {
+        val service = PetService.instance
+        val active = service?.isRoleActive(debugRoleId) == true
+        val document = service?.debugDocument(debugRoleId)
+        if (document != null) {
+            if (lastDebugDocument !== document) {
+                val accent = androidx.core.content.ContextCompat.getColor(this, R.color.cp_title)
+                debugBody.text = android.text.SpannableStringBuilder()
+                    .append(document.title).append('\n').append(document.colored(accent))
+                lastDebugDocument = document
+            }
+        } else {
+            lastDebugDocument = null
+            val message = if (active) "等待实时调试信息…" else "角色未召唤"
+            if (debugBody.text.toString() != message) debugBody.text = message
+        }
+        val opened = service?.isDebugWindowOpen(debugRoleId) == true
+        debugWindowButton.isEnabled = active
+        debugWindowButton.text = if (opened) "关闭调试窗口" else "打开调试窗口"
+    }
+
+    override fun onResume() {
+        super.onResume()
+        PetService.debugPageRoleId = debugRoleId
+        debugHandler.removeCallbacks(debugRefresh)
+        debugRefresh.run()
+    }
+
+    override fun onPause() {
+        debugHandler.removeCallbacks(debugRefresh)
+        if (PetService.debugPageRoleId == debugRoleId) PetService.debugPageRoleId = null
+        lastDebugDocument = null
+        super.onPause()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_debug)
         // 标题下方小字灰色：当前页面所属角色名（调试页内联取 roleId，无统一字段）
-        val debugRoleId = intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id
+        debugRoleId = intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id
         findViewById<android.widget.TextView>(R.id.tv_title_sub).text = RoleStore.resolveDisplayName(this, debugRoleId)
         // 用纯黑占位条填充状态栏高度，与标题栏黑底连成整体覆盖状态栏；标题文字在标题栏内完整显示。
         val spacer = findViewById<android.view.View>(R.id.status_bar_spacer)
@@ -37,7 +83,14 @@ class DebugActivity : AppCompatActivity() {
         findViewById<android.widget.ImageView>(R.id.iv_back).setOnClickListener { finish() }
 
         config = PetConfig.forRole(this, intent?.getStringExtra("role_id") ?: RoleRegistry.DEFAULT.id)
-        val swDebug = findViewById<Switch>(R.id.sw_debug)
+        debugBody = findViewById(R.id.tv_live_debug)
+        debugWindowButton = findViewById(R.id.btn_debug_window)
+        debugWindowButton.setOnClickListener {
+            PetService.instance?.let { service ->
+                service.setDebugWindowEnabled(debugRoleId, !service.isDebugWindowOpen(debugRoleId))
+            }
+            renderLiveDebug()
+        }
         val swBoundOffset = findViewById<Switch>(R.id.sw_bound_offset)
         val swSnapOffset = findViewById<Switch>(R.id.sw_snap_offset)
         val rgHitMode = findViewById<RadioGroup>(R.id.rg_hit_mode)
@@ -82,7 +135,6 @@ class DebugActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val c = config.configFlow.first()
-            swDebug.isChecked = c.showDebug
             swBoundOffset.isChecked = c.showBoundOffset
             swSnapOffset.isChecked = c.showSnapOffset
             rgHitMode.check(
@@ -115,9 +167,6 @@ class DebugActivity : AppCompatActivity() {
             swSingleTrayMsg.isChecked = c.singleTrayMsg
             sbPetCount.progress = c.petCount.coerceIn(1, 20)
             tvPetCount.text = c.petCount.toString()
-        }
-        swDebug.setOnCheckedChangeListener { _, b ->
-            lifecycleScope.launch { config.update { it.copy(showDebug = b) } }
         }
         swBoundOffset.setOnCheckedChangeListener { _, b ->
             lifecycleScope.launch { config.update { it.copy(showBoundOffset = b) } }
