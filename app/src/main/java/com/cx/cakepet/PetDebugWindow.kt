@@ -69,7 +69,7 @@ internal class PetDebugWindow(
     private val scroll = ScrollView(context).apply {
         isFillViewport = false
         isVerticalScrollBarEnabled = false
-        addView(body, ScrollView.LayoutParams(-1, -2))
+        addView(body, android.widget.FrameLayout.LayoutParams(-1, -2))
     }
     private val lp = WindowManager.LayoutParams().apply {
         type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
